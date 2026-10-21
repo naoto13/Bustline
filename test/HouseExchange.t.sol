@@ -9,12 +9,12 @@ import {MockPyth} from "../src/mocks/MockPyth.sol";
 import {ImpactLib} from "../src/libraries/ImpactLib.sol";
 
 contract HouseExchangeTest is Base {
-    function setUp() public {
+    function setUp() public virtual {
         vm.warp(1_800_000_000);
         _deploy(address(new MockERC20("Mezo USD", "MUSD", 18)));
     }
 
-    function _fund(address who, uint256 amt) internal override {
+    function _fund(address who, uint256 amt) internal virtual override {
         MockERC20(address(musd)).mint(who, amt);
     }
 
