@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -166,12 +165,12 @@ class LocalExecutor:
 
 
 class TestnetExecutor:
-    """Mezo TESTNET only. Signs via `forge script script/KeeperOps.s.sol`, which reads MEZO_TESTNET_PRIVATE_KEY
-    from the inherited environment. The key never appears in argv, logs or files.
-    """
+    """Mezo TESTNET only. Signs in-process with EnvSigner (key from MEZO_TESTNET_PRIVATE_KEY env; never in argv/logs/files)."""
 
-    def __init__(self, rpc: JsonRpc, exchange: str):
+    def __init__(self, rpc: JsonRpc, exchange: str, selectors: Optional[dict[str, str]] = None):
         self.rpc, self.ex = rpc, exchange
+        self.sel = selectors or load_selectors()
+        self._signer = None
 
     def check(self) -> None:
         host = urlparse(self.rpc.url).hostname or ""
@@ -182,20 +181,19 @@ class TestnetExecutor:
         if not os.environ.get("MEZO_TESTNET_PRIVATE_KEY"):
             raise ExecutionRefused("refusing: MEZO_TESTNET_PRIVATE_KEY not set")
 
-    def _run(self, sig: str, *args: str) -> str:
+    def _send(self, data: str) -> str:
         self.check()
-        cmd = ["forge", "script", "script/KeeperOps.s.sol", "--sig", sig, *args, "--rpc-url", self.rpc.url,
-               "--broadcast", "--slow", "-q"]
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=180)
-        if r.returncode != 0:
-            raise RpcError(f"forge script failed: {sig} {args} :: {r.stderr.strip()[-300:]}")
-        return "forge-script-ok"
+        if self._signer is None:
+            from .signer import EnvSigner
+
+            self._signer = EnvSigner(self.rpc)
+        return self._signer.send(self.ex, data)["transactionHash"]
 
     def execute(self, oid: int) -> str:
-        return self._run("execute(address,uint256)", self.ex, str(oid))
+        return self._send(self.sel["executeOrder(uint256)"] + enc_uint(oid))
 
     def liquidate(self, pid: int) -> str:
-        return self._run("liquidate(address,uint256)", self.ex, str(pid))
+        return self._send(self.sel["liquidate(uint256)"] + enc_uint(pid))
 
     def harvest(self, n: int) -> str:
-        return self._run("harvest(address,uint256)", self.ex, str(n))
+        return self._send(self.sel["harvest(uint256)"] + enc_uint(n))
