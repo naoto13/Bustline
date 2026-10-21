@@ -237,6 +237,7 @@ function Dashboard() {
   const priceN = f(mk?.price);
   const chg = stats.data && stats.data.open ? ((stats.data.last - stats.data.open) / stats.data.open) * 100 : undefined;
   const ageS = mk ? Math.max(0, Math.floor(Date.now() / 1000 - Number(mk.updatedAt))) : 0;
+  const live = !!mk && (mk.settleable || ageS <= 360); // keeper heartbeat pushes every 5 min
   const ageTxt = ageS < 90 ? `${ageS}s` : ageS < 5400 ? `${Math.round(ageS / 60)}m` : `${Math.round(ageS / 3600)}h`;
   const setMarginMul = (k: number) => setMargin(String(Math.max(0, Math.round(Number(margin || "0") * k * 100) / 100)));
   const balN = f(us?.musd);
@@ -297,7 +298,7 @@ function Dashboard() {
         <span className="stat"><span className="k">EQUITY</span><span className={`num ${(mk?.equity ?? 0n) < 0n ? "neg" : ""}`} data-stat="equity">{signed(mk?.equity)}</span></span>
         <span className="stat" title={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode}><span className="k">ORACLE</span><span>{d.oracleMode === "signed" ? "signed · Skip ±1%" : d.oracleMode ?? "mock"}</span></span>
         <span className="stat"><span className="k">PUBLISHED</span><span className="num">{mk ? `${ageTxt} ago` : "–"}</span></span>
-        <span className={`live ${mk?.settleable ? "" : "stale"}`} title={mk?.settleable ? "on-chain price is fresh" : "stale — keeper pushes a fresh price with each fill/liquidation"}>{mk?.settleable ? "LIVE" : "STALE"}</span>
+        <span className={`live ${live ? "" : "stale"}`} title={live ? "on-chain price is fresh (keeper heartbeat every 5 min; fills use a newer signed price)" : "stale — keeper pushes a fresh price every 5 min and with each fill/liquidation"}>{live ? "LIVE" : "STALE"}</span>
       </div>
     </div>
   );
@@ -420,7 +421,7 @@ function Dashboard() {
             <Row k="RPC" v={RPC_URL} />
             <Row k="Oracle" v={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode} />
             <Row k="Price published" v={mk ? new Date(Number(mk.updatedAt) * 1000).toLocaleString() : "–"} />
-            <Row k="Price state" v={mk ? (mk.settleable ? "fresh" : "stale — keeper pushes a fresh price with each fill/liquidation") : "–"} />
+            <Row k="Price state" v={mk ? (mk.settleable ? "fresh" : "stale — keeper pushes a fresh price every 5 min and with each fill/liquidation") : "–"} />
             <Row k="HouseExchange" v={<span className="num">{d.HouseExchange}</span>} />
             <Row k="Chart feed" v={candles.isError ? "Coinbase candles unavailable" : "Coinbase BTC-USD (display only)"} />
           </div>
