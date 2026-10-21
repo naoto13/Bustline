@@ -120,7 +120,7 @@ export const HouseExchangeAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "updatedAt",
+        "name": "publishTime",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -135,10 +135,15 @@ export const HouseExchangeAbi = [
         "name": "orderId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "priceUpdate",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -412,6 +417,24 @@ export const HouseExchangeAbi = [
   },
   {
     "type": "function",
+    "name": "lastPrice",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "p",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "publishTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "liqFeeBps",
     "inputs": [],
     "outputs": [
@@ -444,10 +467,15 @@ export const HouseExchangeAbi = [
         "name": "positionId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "priceUpdate",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -465,19 +493,6 @@ export const HouseExchangeAbi = [
   {
     "type": "function",
     "name": "lossFeeBps",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxDeviationBps",
     "inputs": [],
     "outputs": [
       {
@@ -652,7 +667,7 @@ export const HouseExchangeAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract IOracleAdapter"
+        "internalType": "contract IPriceOracle"
       }
     ],
     "stateMutability": "view"
@@ -770,42 +785,16 @@ export const HouseExchangeAbi = [
   },
   {
     "type": "function",
-    "name": "pyth",
-    "inputs": [],
-    "outputs": [
+    "name": "pushPrice",
+    "inputs": [
       {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IPyth"
+        "name": "priceUpdate",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
       }
     ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "pythFeedId",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "pythMaxAge",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -1089,34 +1078,6 @@ export const HouseExchangeAbi = [
         "name": "o",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setPythGuard",
-    "inputs": [
-      {
-        "name": "pyth_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feedId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "maxAge",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxDevBps",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -1730,11 +1691,6 @@ export const HouseExchangeAbi = [
   },
   {
     "type": "error",
-    "name": "PriceDeviation",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -1752,6 +1708,11 @@ export const HouseExchangeAbi = [
   {
     "type": "error",
     "name": "SizeTooLarge",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnexpectedValue",
     "inputs": []
   }
 ] as const;

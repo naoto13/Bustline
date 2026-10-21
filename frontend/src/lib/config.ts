@@ -19,6 +19,8 @@ export type Deployment = {
   MUSD: `0x${string}`;
   MockOracle?: `0x${string}`;
   OracleAdapter?: `0x${string}`;
+  Oracle?: `0x${string}`;
+  oracleMode?: "pyth" | "signed" | "mock";
   RebateToken: `0x${string}`;
   RebateStaking: `0x${string}`;
   HouseExchange: `0x${string}`;

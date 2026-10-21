@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+from .abi import call_bytes_array, call_uint_bytes_array
 from .rpc import JsonRpc, RpcError, to_signed, words
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +64,8 @@ class Snapshot:
     short_oi: int
     open_ids: list[int]
     order_count: int
+    last_price: Optional[int] = None  # oracle.peek(): unchecked, for display
+    last_time: int = 0
 
 
 class ExchangeReader:
@@ -94,12 +97,23 @@ class ExchangeReader:
     def bust_price(self, pid: int) -> int:
         return self._u("bustPriceOf(uint256)", pid)
 
+    def position_is_long(self, pid: int) -> bool:
+        return bool(words(self._call("getPosition(uint256)", pid))[1])
+
+    def last_price(self) -> tuple[Optional[int], int]:
+        try:
+            w = words(self._call("lastPrice()"))
+            return w[0], w[1]
+        except (RpcError, KeyError):
+            return None, 0
+
     def snapshot(self) -> Snapshot:
         price, upd, err = None, 0, None
         try:
             price, upd = self.current_price()
-        except RpcError as e:  # stale oracle / Pyth deviation
+        except RpcError as e:  # stale oracle / Skip deviation bound
             err = str(e)
+        lp, lt = self.last_price()
         return Snapshot(
             block_ts=self.rpc.block_timestamp(),
             price=price,
@@ -112,6 +126,8 @@ class ExchangeReader:
             short_oi=self._u("shortOi()"),
             open_ids=dyn_uint_array(self._call("openPositionIds()")),
             order_count=self._u("orderCount()"),
+            last_price=lp,
+            last_time=lt,
         )
 
 
@@ -142,9 +158,9 @@ class LocalExecutor:
         if self.sender.lower() not in [a.lower() for a in self.rpc.call("eth_accounts")]:
             raise ExecutionRefused("refusing to send: sender is not an unlocked anvil account")
 
-    def send(self, to: str, data: str) -> str:
+    def send(self, to: str, data: str, value: int = 0) -> str:
         self.check()
-        tx = self.rpc.call("eth_sendTransaction", [{"from": self.sender, "to": to, "data": data, "gas": hex(3_000_000)}])
+        tx = self.rpc.call("eth_sendTransaction", [{"from": self.sender, "to": to, "data": data, "gas": hex(3_000_000), "value": hex(value)}])
         for _ in range(50):
             rc = self.rpc.call("eth_getTransactionReceipt", [tx])
             if rc is not None:
@@ -154,11 +170,14 @@ class LocalExecutor:
             time.sleep(0.2)
         raise RpcError(f"no receipt: {tx}")
 
-    def execute(self, oid: int) -> str:
-        return self.send(self.ex, self.sel["executeOrder(uint256)"] + enc_uint(oid))
+    def execute(self, oid: int, update: list[bytes] = (), fee: int = 0) -> str:
+        return self.send(self.ex, call_uint_bytes_array(self.sel["executeOrder(uint256,bytes[])"], oid, list(update)), fee)
 
-    def liquidate(self, pid: int) -> str:
-        return self.send(self.ex, self.sel["liquidate(uint256)"] + enc_uint(pid))
+    def liquidate(self, pid: int, update: list[bytes] = (), fee: int = 0) -> str:
+        return self.send(self.ex, call_uint_bytes_array(self.sel["liquidate(uint256,bytes[])"], pid, list(update)), fee)
+
+    def push(self, update: list[bytes], fee: int = 0) -> str:
+        return self.send(self.ex, call_bytes_array(self.sel["pushPrice(bytes[])"], list(update)), fee)
 
     def harvest(self, n: int) -> str:
         return self.send(self.ex, self.sel["harvest(uint256)"] + enc_uint(n))
@@ -181,19 +200,25 @@ class TestnetExecutor:
         if not os.environ.get("MEZO_TESTNET_PRIVATE_KEY"):
             raise ExecutionRefused("refusing: MEZO_TESTNET_PRIVATE_KEY not set")
 
-    def _send(self, data: str) -> str:
+    def _send(self, data: str, value: int = 0) -> str:
+        return self.signer().send(self.ex, data, value)["transactionHash"]
+
+    def signer(self):
         self.check()
         if self._signer is None:
             from .signer import EnvSigner
 
             self._signer = EnvSigner(self.rpc)
-        return self._signer.send(self.ex, data)["transactionHash"]
+        return self._signer
 
-    def execute(self, oid: int) -> str:
-        return self._send(self.sel["executeOrder(uint256)"] + enc_uint(oid))
+    def execute(self, oid: int, update: list[bytes] = (), fee: int = 0) -> str:
+        return self._send(call_uint_bytes_array(self.sel["executeOrder(uint256,bytes[])"], oid, list(update)), fee)
 
-    def liquidate(self, pid: int) -> str:
-        return self._send(self.sel["liquidate(uint256)"] + enc_uint(pid))
+    def liquidate(self, pid: int, update: list[bytes] = (), fee: int = 0) -> str:
+        return self._send(call_uint_bytes_array(self.sel["liquidate(uint256,bytes[])"], pid, list(update)), fee)
+
+    def push(self, update: list[bytes], fee: int = 0) -> str:
+        return self._send(call_bytes_array(self.sel["pushPrice(bytes[])"], list(update)), fee)
 
     def harvest(self, n: int) -> str:
         return self._send(self.sel["harvest(uint256)"] + enc_uint(n))

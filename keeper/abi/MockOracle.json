@@ -25,6 +25,24 @@
   },
   {
     "type": "function",
+    "name": "latest",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "latestRoundData",
     "inputs": [],
     "outputs": [
@@ -34,7 +52,7 @@
         "internalType": "uint80"
       },
       {
-        "name": "answer",
+        "name": "",
         "type": "int256",
         "internalType": "int256"
       },
@@ -78,6 +96,24 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "peek",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -164,6 +200,38 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "update",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "updateFee",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes[]",
+        "internalType": "bytes[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",

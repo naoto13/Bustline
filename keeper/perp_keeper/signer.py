@@ -45,6 +45,12 @@ class EnvSigner:
         self._acct = Account.from_key(os.environ[ENV_KEY])  # key stays in memory only
         self.address: str = self._acct.address
 
+    def sign_hash_eip191(self, h: bytes) -> bytes:
+        """EIP-191 personal_sign over a 32-byte hash (SignedPriceOracle report). Returns r||s||v (65 bytes)."""
+        from eth_account.messages import encode_defunct
+
+        return bytes(self._acct.sign_message(encode_defunct(primitive=h)).signature)
+
     def check(self) -> None:
         host = urlparse(self.rpc.url).hostname or ""
         if host not in TESTNET_HOSTS:

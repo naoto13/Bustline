@@ -23,7 +23,7 @@ async function readMarket(d: Deployment) {
   const x = d.HouseExchange;
   const [[price, updatedAt], houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, orderCount, openIds, head, qlen, totalStaked, toStakers] =
     await Promise.all([
-      r<readonly [bigint, bigint]>(x, EX, "currentPrice"), r<bigint>(x, EX, "houseCash"), r<bigint>(x, EX, "queueTotal"),
+      r<readonly [bigint, bigint]>(x, EX, "lastPrice"), r<bigint>(x, EX, "houseCash"), r<bigint>(x, EX, "queueTotal"),
       r<bigint>(x, EX, "houseEquity"), r<bigint>(x, EX, "longOi"), r<bigint>(x, EX, "shortOi"), r<bigint>(x, EX, "mintRate"),
       r<bigint>(x, EX, "maxLeverage"), r<bigint>(x, EX, "bustBufferDiv"), r<bigint>(x, EX, "orderCount"),
       r<readonly bigint[]>(x, EX, "openPositionIds"), r<bigint>(x, EX, "queueHead"), r<bigint>(x, EX, "queueLength"),
@@ -38,7 +38,11 @@ async function readMarket(d: Deployment) {
     const [to, amount] = await r<readonly [Address, bigint]>(x, EX, "queueEntry", [i]);
     queue.push({ idx: i, to, amount });
   }
-  return { price, updatedAt, houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, positions, orders, queue, totalStaked, toStakers };
+  const settleable = await r<readonly [bigint, bigint]>(x, EX, "currentPrice").then(() => true, () => false);
+  const [tokenName, tokenSymbol] = await Promise.all([
+    r<string>(d.RebateToken, RebateTokenAbi as Abi, "name"), r<string>(d.RebateToken, RebateTokenAbi as Abi, "symbol"),
+  ]);
+  return { settleable, tokenName, tokenSymbol, price, updatedAt, houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, positions, orders, queue, totalStaked, toStakers };
 }
 
 async function readUser(d: Deployment, who: Address) {
@@ -59,6 +63,8 @@ function bustPrice(isLong: boolean, margin: bigint, size: bigint, entry: bigint,
   const buf = bufDiv === 0n ? 0n : entry / bufDiv;
   return isLong ? (entry > dist ? entry - dist : 0n) + buf : entry + dist - buf;
 }
+const ORACLE_LABEL: Record<string, string> = { pyth: "Pyth pull", signed: "keeper-signed, Skip-bounded", mock: "mock oracle" };
+
 const rawPnl = (p: Pos, price: bigint) => {
   const d = ((price > p.entryPrice ? price - p.entryPrice : p.entryPrice - price) * p.size) / p.entryPrice;
   const up = price >= p.entryPrice;
@@ -156,8 +162,8 @@ function Dashboard() {
       await publicClient.request({ method: "evm_increaseTime" as never, params: [1] as never } as never);
       await write(d.MockOracle!, MockOracleAbi as Abi, "setPrice", [p], owner);
       const mm = await readMarket(d);
-      for (const o of mm.orders) await write(d.HouseExchange, EX, "executeOrder", [o.id], owner);
-      for (const p2 of mm.positions) if (await r<boolean>(d.HouseExchange, EX, "isLiquidatable", [p2.id])) await write(d.HouseExchange, EX, "liquidate", [p2.id], owner);
+      for (const o of mm.orders) await write(d.HouseExchange, EX, "executeOrder", [o.id, []], owner);
+      for (const p2 of mm.positions) if (await r<boolean>(d.HouseExchange, EX, "isLiquidatable", [p2.id])) await write(d.HouseExchange, EX, "liquidate", [p2.id, []], owner);
       return `filled ${mm.orders.length}`;
     });
   const movePrice = (pct: number) =>
@@ -184,7 +190,7 @@ function Dashboard() {
       </div>
 
       <div className="grid">
-        <Stat k="BTC/USD (oracle)" v={usd(mk?.price)} sub={mk ? `updated ${new Date(Number(mk.updatedAt) * 1000).toLocaleTimeString()}` : ""} />
+        <Stat k={`BTC/USD (${ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode})`} v={usd(mk?.price)} sub={mk ? `published ${new Date(Number(mk.updatedAt) * 1000).toLocaleTimeString()} · ${mk.settleable ? "fresh" : "stale — keeper pushes a fresh price with each fill/liquidation"}` : ""} />
         <Stat k="House cash" v={`${num(mk?.houseCash)} MUSD`} sub="grows only from trader losses" />
         <Stat k="Payout queue" v={`${num(mk?.queueTotal)} MUSD`} sub={`${mk?.queue.length ?? 0} waiting winners (FIFO)`} />
         <Stat k="House equity" v={<span style={{ color: (mk?.equity ?? 0n) < 0n ? "#f87171" : "#4ade80" }}>{signed(mk?.equity)}</span>} sub="cash − queued (can be < 0)" />
@@ -209,7 +215,7 @@ function Dashboard() {
         </div>
 
         <div className="card">
-          <h3>Rebate token & staking</h3>
+          <h3>{mk?.tokenName ?? "Mezo Paper"} ({mk?.tokenSymbol ?? "MPAPER"}) · rebate token & staking</h3>
           <div className="k">Minted on realised losses · non-transferable · stake for MUSD revenue share</div>
           <div className="grid" style={{ margin: "8px 0" }}>
             <div><div className="k">Wallet</div><div>{num(us?.rebate, 0)}</div></div>
