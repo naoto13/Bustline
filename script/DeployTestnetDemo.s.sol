@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {HouseExchange} from "../src/HouseExchange.sol";
-import {RebateToken} from "../src/RebateToken.sol";
-import {RebateStaking} from "../src/RebateStaking.sol";
-import {MockOracle} from "../src/mocks/MockOracle.sol";
-import {MezoTestnet} from "./MezoTestnet.sol";
+import { Script, console2 } from "forge-std/Script.sol";
+import { HouseExchange } from "../src/HouseExchange.sol";
+import { RebateToken } from "../src/RebateToken.sol";
+import { RebateStaking } from "../src/RebateStaking.sol";
+import { MockOracle } from "../src/mocks/MockOracle.sol";
+import { MezoTestnet } from "./MezoTestnet.sol";
 
 /// @title DeployTestnetDemo — a SEPARATE, clearly-labelled "crash demo" market on Mezo TESTNET whose price comes from a
 ///        MockOracle owned by the deployer (to demonstrate liquidations / queue on demand). The real market
@@ -21,7 +21,7 @@ contract DeployTestnetDemo is Script {
         vm.startBroadcast(pk);
         MockOracle oracle = new MockOracle(p0);
         oracle.setMaxStaleness(7 days);
-        RebateToken rt = new RebateToken("House Rebate Point (DEMO market)", "HRP-DEMO", owner);
+        RebateToken rt = new RebateToken("Mezo Paper (DEMO market)", "MPAPER-DEMO", owner);
         HouseExchange ex = new HouseExchange(MezoTestnet.MUSD, address(oracle), address(rt), owner);
         RebateStaking st = new RebateStaking(address(rt), MezoTestnet.MUSD, address(ex));
         rt.setMinter(address(ex));

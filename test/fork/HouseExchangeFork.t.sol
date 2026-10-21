@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {HouseExchangeTest} from "../HouseExchange.t.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { HouseExchangeTest } from "../HouseExchange.t.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @notice Re-runs the FULL unit/fuzz suite against the REAL Mezo testnet MUSD bytecode/state, forked from
 ///         MEZO_FORK_URL (a local anvil fork, or https://rpc.test.mezo.org read-only). Nothing is broadcast.
@@ -40,7 +40,7 @@ contract HouseExchangeForkTest is HouseExchangeTest {
         // crash below carol's bust → liquidation pays part of the queue
         _setPrice(98_000e18);
         vm.prank(liquidator);
-        ex.liquidate(pc);
+        ex.liquidate(pc, NO_UPD);
         assertEq(IERC20(MUSD).balanceOf(liquidator), 0.5e18);
         _close(bob, pb, 98_000e18); // bob (short) wins 2% too → queued behind alice
         _checkAccounting();

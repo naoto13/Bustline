@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {HouseExchange} from "../src/HouseExchange.sol";
-import {RebateToken} from "../src/RebateToken.sol";
-import {RebateStaking} from "../src/RebateStaking.sol";
-import {MockOracle} from "../src/mocks/MockOracle.sol";
-import {MezoTestnet} from "./MezoTestnet.sol";
+import { Script, console2 } from "forge-std/Script.sol";
+import { HouseExchange } from "../src/HouseExchange.sol";
+import { RebateToken } from "../src/RebateToken.sol";
+import { RebateStaking } from "../src/RebateStaking.sol";
+import { MockOracle } from "../src/mocks/MockOracle.sol";
+import { MezoTestnet } from "./MezoTestnet.sol";
 
 /// @title DeployLocal — dev deployment on a LOCAL anvil fork of Mezo testnet (scripts/dev-fork.sh, unlocked anvil #0).
 /// @dev Skip BTC/USD is a precompile the forked EVM cannot run → MockOracle seeded with INITIAL_PRICE (Skip value read
@@ -22,7 +22,9 @@ contract DeployLocal is Script {
         address owner = msg.sender;
         MockOracle oracle = new MockOracle(p0);
         oracle.setMaxStaleness(365 days); // idle anvil: no staleness
-        RebateToken rt = new RebateToken(vm.envOr("REBATE_NAME", string("House Rebate Point")), vm.envOr("REBATE_SYMBOL", string("HRP")), owner);
+        RebateToken rt = new RebateToken(
+            vm.envOr("REBATE_NAME", string("Mezo Paper")), vm.envOr("REBATE_SYMBOL", string("MPAPER")), owner
+        );
         HouseExchange ex = new HouseExchange(MezoTestnet.MUSD, address(oracle), address(rt), owner);
         RebateStaking st = new RebateStaking(address(rt), MezoTestnet.MUSD, address(ex));
         rt.setMinter(address(ex));

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title RebateToken — loss-rebate point minted to traders in proportion to realised losses.
 /// @notice Name/symbol are deployment parameters (placeholder by default). Non-transferable by default:
@@ -19,7 +19,7 @@ contract RebateToken is ERC20, Ownable {
     event StakingSet(address staking);
     event TransferableSet(bool transferable);
 
-    constructor(string memory name_, string memory symbol_, address owner_) ERC20(name_, symbol_) Ownable(owner_) {}
+    constructor(string memory name_, string memory symbol_, address owner_) ERC20(name_, symbol_) Ownable(owner_) { }
 
     function setMinter(address m) external onlyOwner {
         minter = m;

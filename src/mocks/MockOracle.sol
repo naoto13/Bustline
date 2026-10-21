@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IOracleAdapter} from "../interfaces/IOracleAdapter.sol";
+import { IPriceOracle } from "../interfaces/IPriceOracle.sol";
 
-/// @notice Admin-settable mock oracle for unit tests and crash demos.
-contract MockOracle is IOracleAdapter {
-    uint256 public priceValue; // 1e18 USD per BTC
+/// @notice Admin-settable price for unit tests, anvil demos and the labelled crash-demo market.
+///         Also exposes Chainlink-style `latestRoundData` so it can stand in for Skip in SkipBound tests.
+contract MockOracle is IPriceOracle {
+    uint256 public priceValue; // WAD
     uint256 public updatedAt;
     uint256 public maxStaleness = 1 hours;
     address public owner;
@@ -15,16 +16,16 @@ contract MockOracle is IOracleAdapter {
     error InvalidPrice();
     error NotOwner();
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
     constructor(uint256 initialPrice) {
         owner = msg.sender;
         priceValue = initialPrice;
         updatedAt = block.timestamp;
         roundId = 1;
+    }
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
     }
 
     function setPrice(uint256 newPrice) external onlyOwner {
@@ -36,7 +37,6 @@ contract MockOracle is IOracleAdapter {
         }
     }
 
-    /// @notice Set price without refreshing timestamp (for staleness tests).
     function setPriceRaw(uint256 newPrice, uint256 timestamp) external onlyOwner {
         priceValue = newPrice;
         updatedAt = timestamp;
@@ -49,17 +49,27 @@ contract MockOracle is IOracleAdapter {
         maxStaleness = secs;
     }
 
-    function price() external view returns (uint256) {
+    function updateFee(bytes[] calldata) external pure returns (uint256) {
+        return 0;
+    }
+
+    function update(bytes[] calldata) external payable { }
+
+    function latest() external view returns (uint256, uint256) {
         if (block.timestamp > updatedAt + maxStaleness) revert StalePrice();
         if (priceValue == 0) revert InvalidPrice();
+        return (priceValue, updatedAt);
+    }
+
+    function peek() external view returns (uint256, uint256) {
+        return (priceValue, updatedAt);
+    }
+
+    function price() external view returns (uint256) {
         return priceValue;
     }
 
-    function latestRoundData()
-        external
-        view
-        returns (uint80, int256 answer, uint256, uint256, uint80)
-    {
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
         return (roundId, int256(priceValue), updatedAt, updatedAt, roundId);
     }
 

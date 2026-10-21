@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title ImpactLib — PnL math for the synthetic perp (independent implementation).
 /// @notice Winning closes: (1) deadband — exit measured `entry/deadbandDiv` less favourably, (2) asymmetric impact
@@ -32,7 +32,11 @@ library ImpactLib {
     }
 
     /// @notice Exit price after applying the deadband against the trader (only meaningful for winners).
-    function deadbandExit(bool isLong, uint256 entry, uint256 exit, uint256 deadbandDiv) internal pure returns (uint256) {
+    function deadbandExit(bool isLong, uint256 entry, uint256 exit, uint256 deadbandDiv)
+        internal
+        pure
+        returns (uint256)
+    {
         if (deadbandDiv == 0) return exit;
         uint256 db = entry / deadbandDiv;
         if (isLong) return exit > db ? exit - db : 0;

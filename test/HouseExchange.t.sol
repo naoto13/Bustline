@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Base} from "./Base.t.sol";
-import {HouseExchange} from "../src/HouseExchange.sol";
-import {RebateToken} from "../src/RebateToken.sol";
-import {MockERC20} from "../src/mocks/MockERC20.sol";
-import {MockPyth} from "../src/mocks/MockPyth.sol";
-import {ImpactLib} from "../src/libraries/ImpactLib.sol";
+import { Base } from "./Base.t.sol";
+import { HouseExchange } from "../src/HouseExchange.sol";
+import { RebateToken } from "../src/RebateToken.sol";
+import { MockERC20 } from "../src/mocks/MockERC20.sol";
+import { ImpactLib } from "../src/libraries/ImpactLib.sol";
 
 contract HouseExchangeTest is Base {
     function setUp() public virtual {
@@ -23,16 +22,16 @@ contract HouseExchangeTest is Base {
         uint256 oid = _request(alice, true, 100e18, 10);
         vm.prank(keeper);
         vm.expectRevert(HouseExchange.NotYetFillable.selector);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
         // same-second update is still not "later"
         vm.prank(owner);
         oracle.setPrice(P0 + 1e18);
         vm.prank(keeper);
         vm.expectRevert(HouseExchange.NotYetFillable.selector);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
         _setPrice(101_000e18);
         vm.prank(keeper);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
         assertEq(ex.getPosition(0).entryPrice, 101_000e18, "filled at the later price");
     }
 
@@ -41,7 +40,7 @@ contract HouseExchangeTest is Base {
         _setPrice(P0);
         vm.prank(alice);
         vm.expectRevert(HouseExchange.NotKeeper.selector);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
     }
 
     function test_leverageAndMarginLimits() public {
@@ -76,7 +75,7 @@ contract HouseExchangeTest is Base {
         vm.stopPrank();
         _setPrice(101_000e18);
         vm.prank(keeper);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
         assertEq(uint8(ex.getOrder(oid).status), 3);
         assertEq(musd.balanceOf(alice), 100e18);
     }
@@ -88,7 +87,7 @@ contract HouseExchangeTest is Base {
         uint256 oid = _request(bob, true, 100e18, 10);
         _setPrice(P0);
         vm.prank(keeper);
-        ex.executeOrder(oid);
+        ex.executeOrder(oid, NO_UPD);
         assertEq(uint8(ex.getOrder(oid).status), 3, "cancelled by OI cap");
         _open(bob, false, 100e18, 10, P0); // other side unaffected
         _checkAccounting();
@@ -157,10 +156,10 @@ contract HouseExchangeTest is Base {
         assertEq(bust, P0 - 1_000e18 + 50e18, "1% zero-equity + 5bps buffer");
         _setPrice(bust + 1);
         vm.expectRevert(HouseExchange.NotLiquidatable.selector);
-        ex.liquidate(pid);
+        ex.liquidate(pid, NO_UPD);
         _setPrice(bust);
         vm.prank(liquidator);
-        ex.liquidate(pid);
+        ex.liquidate(pid, NO_UPD);
         assertEq(musd.balanceOf(liquidator), 0.5e18, "0.5% keeper reward");
         assertEq(musd.balanceOf(alice), 0, "full margin forfeited");
         assertEq(rt.balanceOf(alice), 100e18 * 100, "mint on full margin");
@@ -175,7 +174,7 @@ contract HouseExchangeTest is Base {
         assertEq(bust, P0 + 5_000e18 - 50e18);
         _setPrice(bust);
         assertTrue(ex.isLiquidatable(pid));
-        ex.liquidate(pid);
+        ex.liquidate(pid, NO_UPD);
         _checkAccounting();
     }
 
@@ -279,21 +278,6 @@ contract HouseExchangeTest is Base {
         assertGe(-pnl + int256(size / 2_000) + tol, int256(margin));
     }
 
-    // ---------------------------------------------------------------- pyth guard
-    function test_pythDeviationGuard() public {
-        MockPyth py = new MockPyth();
-        bytes32 id = keccak256("BTC/USD");
-        vm.prank(owner);
-        ex.setPythGuard(address(py), id, 60, 100);
-        py.set(id, 10_000_000_000_000, -8, block.timestamp); // 100,000.00000000
-        ex.currentPrice();
-        py.set(id, 10_200_000_000_000, -8, block.timestamp); // 2% off
-        vm.expectRevert(HouseExchange.PriceDeviation.selector);
-        ex.currentPrice();
-        py.set(id, 10_200_000_000_000, -8, block.timestamp - 61); // stale pyth ignored
-        ex.currentPrice();
-    }
-
     // ---------------------------------------------------------------- randomized accounting
     function testFuzz_randomTradingKeepsAccounting(uint256 seed) public {
         address[3] memory who = [alice, bob, carol];
@@ -316,7 +300,7 @@ contract HouseExchangeTest is Base {
                 _setPrice(price);
                 uint256[] memory ids = ex.openPositionIds();
                 for (uint256 k; k < ids.length; ++k) {
-                    if (ex.isLiquidatable(ids[k])) ex.liquidate(ids[k]);
+                    if (ex.isLiquidatable(ids[k])) ex.liquidate(ids[k], NO_UPD);
                 }
             }
             _checkAccounting();

@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IOracleAdapter} from "./interfaces/IOracleAdapter.sol";
-import {IPyth} from "./interfaces/IPyth.sol";
-import {ImpactLib} from "./libraries/ImpactLib.sol";
-import {RebateToken} from "./RebateToken.sol";
-import {RebateStaking} from "./RebateStaking.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { IPriceOracle } from "./interfaces/IPriceOracle.sol";
+import { ImpactLib } from "./libraries/ImpactLib.sol";
+import { RebateToken } from "./RebateToken.sol";
+import { RebateStaking } from "./RebateStaking.sol";
 
 /// @title HouseExchange — single-market (BTC/USD) synthetic perp on Mezo, margined in MUSD.
 /// @notice The house (counterparty) starts at 0 MUSD and is funded ONLY by trader losses (no external LP deposits).
@@ -66,7 +65,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     }
 
     IERC20 public immutable musd;
-    IOracleAdapter public oracle;
+    IPriceOracle public oracle;
     RebateToken public immutable rebateToken;
     RebateStaking public staking;
 
@@ -89,11 +88,6 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     uint256 public mintThreshold = 2_000_000e18;
     uint256 public mintDecayScale = 120_000_000e18;
     uint256 public mintHwm;
-    // ---- optional Pyth deviation guard ----
-    IPyth public pyth;
-    bytes32 public pythFeedId;
-    uint256 public pythMaxAge = 60;
-    uint256 public maxDeviationBps = 100;
 
     mapping(address => bool) public isKeeper;
 
@@ -119,11 +113,42 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     mapping(address => uint256) public queuedOf;
 
     // ---- events ----
-    event OrderRequested(uint256 indexed orderId, address indexed trader, OrderKind kind, bool isLong, uint256 margin, uint256 size, uint256 positionId);
+    event OrderRequested(
+        uint256 indexed orderId,
+        address indexed trader,
+        OrderKind kind,
+        bool isLong,
+        uint256 margin,
+        uint256 size,
+        uint256 positionId
+    );
     event OrderCancelled(uint256 indexed orderId, string reason);
-    event PositionOpened(uint256 indexed positionId, address indexed owner, bool isLong, uint256 margin, uint256 size, uint256 entryPrice, uint256 orderId);
-    event PositionClosed(uint256 indexed positionId, address indexed owner, uint256 exitPrice, int256 rawPnl, uint256 paidNow, uint256 queued, uint256 lossToHouse);
-    event Liquidated(uint256 indexed positionId, address indexed owner, address indexed liquidator, uint256 price, uint256 margin, uint256 keeperReward);
+    event PositionOpened(
+        uint256 indexed positionId,
+        address indexed owner,
+        bool isLong,
+        uint256 margin,
+        uint256 size,
+        uint256 entryPrice,
+        uint256 orderId
+    );
+    event PositionClosed(
+        uint256 indexed positionId,
+        address indexed owner,
+        uint256 exitPrice,
+        int256 rawPnl,
+        uint256 paidNow,
+        uint256 queued,
+        uint256 lossToHouse
+    );
+    event Liquidated(
+        uint256 indexed positionId,
+        address indexed owner,
+        address indexed liquidator,
+        uint256 price,
+        uint256 margin,
+        uint256 keeperReward
+    );
     event Queued(uint256 indexed index, address indexed to, uint256 amount);
     event QueuePaid(uint256 indexed index, address indexed to, uint256 amount, bool fullyPaid);
     event RebateMinted(address indexed to, uint256 lossBasis, uint256 amount);
@@ -141,7 +166,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     error PositionNotOpen();
     error CloseAlreadyPending();
     error NotLiquidatable();
-    error PriceDeviation();
+    error UnexpectedValue();
     error NotExpired();
 
     modifier onlyKeeper() {
@@ -151,7 +176,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     constructor(address musd_, address oracle_, address rebateToken_, address owner_) Ownable(owner_) {
         musd = IERC20(musd_);
-        oracle = IOracleAdapter(oracle_);
+        oracle = IPriceOracle(oracle_);
         rebateToken = RebateToken(rebateToken_);
     }
 
@@ -163,7 +188,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     }
 
     function setOracle(address o) external onlyOwner {
-        oracle = IOracleAdapter(o);
+        oracle = IPriceOracle(o);
         emit ParamsUpdated();
     }
 
@@ -172,10 +197,14 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit KeeperSet(k, allowed);
     }
 
-    function setRisk(uint256 maxLev, uint256 minMargin_, uint256 maxPos, uint256 maxOi, uint256 bufferDiv, uint256 execDelay)
-        external
-        onlyOwner
-    {
+    function setRisk(
+        uint256 maxLev,
+        uint256 minMargin_,
+        uint256 maxPos,
+        uint256 maxOi,
+        uint256 bufferDiv,
+        uint256 execDelay
+    ) external onlyOwner {
         require(maxLev >= 1 && maxLev <= 1000, "lev");
         maxLeverage = maxLev;
         minMargin = minMargin_;
@@ -186,7 +215,10 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit ParamsUpdated();
     }
 
-    function setFees(uint256 winFee, uint256 lossFee, uint256 liqFee, uint256 liqKeeper, uint256 cap) external onlyOwner {
+    function setFees(uint256 winFee, uint256 lossFee, uint256 liqFee, uint256 liqKeeper, uint256 cap)
+        external
+        onlyOwner
+    {
         require(winFee <= 2_000 && lossFee <= 2_000 && liqFee + liqKeeper <= 5_000, "fee");
         (winFeeBps, lossFeeBps, liqFeeBps, liqKeeperBps, houseCap) = (winFee, lossFee, liqFee, liqKeeper, cap);
         emit ParamsUpdated();
@@ -203,31 +235,30 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit ParamsUpdated();
     }
 
-    function setPythGuard(address pyth_, bytes32 feedId, uint256 maxAge, uint256 maxDevBps) external onlyOwner {
-        (pyth, pythFeedId, pythMaxAge, maxDeviationBps) = (IPyth(pyth_), feedId, maxAge, maxDevBps);
-        emit ParamsUpdated();
-    }
-
     // ===================================================================== price
 
-    /// @notice Oracle price (WAD USD/BTC) + its update time; reverts if stale or if the optional Pyth guard deviates.
-    function currentPrice() public view returns (uint256 p, uint256 updatedAt) {
-        p = oracle.price();
-        (,,, updatedAt,) = oracle.latestRoundData();
-        if (address(pyth) != address(0)) {
-            IPyth.Price memory q = pyth.getPriceUnsafe(pythFeedId);
-            if (q.price > 0 && q.publishTime + pythMaxAge >= block.timestamp) {
-                uint256 pp = _pythToWad(q);
-                uint256 diff = pp > p ? pp - p : p - pp;
-                if (diff * BPS > p * maxDeviationBps) revert PriceDeviation();
-            }
-        }
+    /// @notice Verified oracle price (WAD USD/BTC) + its publish time; reverts if stale / out of the Skip sanity bound.
+    ///         Primary source: Pyth BTC/USD (PythPullOracle); fallback: SignedPriceOracle. See README "Oracle".
+    function currentPrice() public view returns (uint256 p, uint256 publishTime) {
+        return oracle.latest();
     }
 
-    function _pythToWad(IPyth.Price memory q) internal pure returns (uint256) {
-        uint256 v = uint256(uint64(q.price));
-        int256 e = int256(q.expo) + 18;
-        return e >= 0 ? v * 10 ** uint256(e) : v / 10 ** uint256(-e);
+    /// @notice Last stored price without checks (UI display only; never used for settlement).
+    function lastPrice() external view returns (uint256 p, uint256 publishTime) {
+        return oracle.peek();
+    }
+
+    /// @notice Push a price update (Pyth update data / signed report) without trading. msg.value pays the oracle fee.
+    function pushPrice(bytes[] calldata priceUpdate) external payable {
+        _pushPrice(priceUpdate);
+    }
+
+    function _pushPrice(bytes[] calldata priceUpdate) internal {
+        if (priceUpdate.length == 0) {
+            if (msg.value != 0) revert UnexpectedValue();
+            return;
+        }
+        oracle.update{ value: msg.value }(priceUpdate);
     }
 
     // ===================================================================== orders (step 1)
@@ -245,7 +276,19 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         musd.safeTransferFrom(msg.sender, address(this), margin);
         totalEscrow += margin;
         orderId = _orders.length;
-        _orders.push(Order(msg.sender, OrderKind.Open, OrderStatus.Pending, isLong, uint64(block.timestamp), margin, size, 0, acceptablePrice));
+        _orders.push(
+            Order(
+                msg.sender,
+                OrderKind.Open,
+                OrderStatus.Pending,
+                isLong,
+                uint64(block.timestamp),
+                margin,
+                size,
+                0,
+                acceptablePrice
+            )
+        );
         emit OrderRequested(orderId, msg.sender, OrderKind.Open, isLong, margin, size, 0);
     }
 
@@ -257,7 +300,19 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         uint256 prev = pendingCloseOrder[positionId];
         if (prev != 0 && _orders[prev - 1].status == OrderStatus.Pending) revert CloseAlreadyPending();
         orderId = _orders.length;
-        _orders.push(Order(msg.sender, OrderKind.Close, OrderStatus.Pending, pos.isLong, uint64(block.timestamp), 0, pos.size, positionId, acceptablePrice));
+        _orders.push(
+            Order(
+                msg.sender,
+                OrderKind.Close,
+                OrderStatus.Pending,
+                pos.isLong,
+                uint64(block.timestamp),
+                0,
+                pos.size,
+                positionId,
+                acceptablePrice
+            )
+        );
         pendingCloseOrder[positionId] = orderId + 1;
         emit OrderRequested(orderId, msg.sender, OrderKind.Close, pos.isLong, 0, pos.size, positionId);
     }
@@ -282,14 +337,16 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     // ===================================================================== fills (step 2)
 
-    /// @notice Keeper fills a pending order at the current oracle price, which must be from an update strictly after
-    ///         the request. Business-rule failures (slippage, OI cap, expiry) cancel + refund instead of reverting.
-    function executeOrder(uint256 orderId) external nonReentrant onlyKeeper {
+    /// @notice Keeper fills a pending order at the oracle price, which must have been PUBLISHED strictly after the
+    ///         request (Pyth publishTime / signed-report time). `priceUpdate` (may be empty) is pushed to the oracle first,
+    ///         in the same tx; msg.value pays its fee. Business-rule failures (slippage, OI cap, expiry) cancel + refund.
+    function executeOrder(uint256 orderId, bytes[] calldata priceUpdate) external payable nonReentrant onlyKeeper {
+        _pushPrice(priceUpdate);
         Order storage o = _orders[orderId];
         if (o.status != OrderStatus.Pending) revert NotPending();
         if (block.timestamp > o.createdAt + maxExecDelay) return _cancel(orderId, "expired");
-        (uint256 price, uint256 updatedAt) = currentPrice();
-        if (updatedAt <= o.createdAt) revert NotYetFillable();
+        (uint256 price, uint256 publishTime) = currentPrice();
+        if (publishTime <= o.createdAt) revert NotYetFillable();
 
         if (o.acceptablePrice != 0) {
             bool bad = (o.kind == OrderKind.Open) == o.isLong ? price > o.acceptablePrice : price < o.acceptablePrice;
@@ -389,7 +446,9 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     }
 
     /// @notice Permissionless liquidation at the current oracle price once the bust trigger is crossed.
-    function liquidate(uint256 positionId) external nonReentrant {
+    ///         `priceUpdate` (may be empty) is pushed to the oracle first; msg.value pays its fee.
+    function liquidate(uint256 positionId, bytes[] calldata priceUpdate) external payable nonReentrant {
+        _pushPrice(priceUpdate);
         Position storage pos = _positions[positionId];
         if (!pos.open) revert PositionNotOpen();
         (uint256 price,) = currentPrice();
@@ -548,7 +607,9 @@ contract HouseExchange is Ownable, ReentrancyGuard {
             if (_orders[i].status == OrderStatus.Pending) tmp[n++] = i;
         }
         ids = new uint256[](n);
-        for (uint256 i; i < n; ++i) ids[i] = tmp[i];
+        for (uint256 i; i < n; ++i) {
+            ids[i] = tmp[i];
+        }
     }
 
     function bustPriceOf(uint256 id) public view returns (uint256) {
