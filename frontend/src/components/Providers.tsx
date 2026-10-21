@@ -1,6 +1,6 @@
 "use client";
 import "@rainbow-me/rainbowkit/styles.css";
-import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
+import { RainbowKitProvider, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { getConfig, mezoTestnet } from "@mezo-org/passport";
@@ -15,7 +15,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={qc}>
-        <RainbowKitProvider initialChain={mezoTestnet} theme={darkTheme()}>
+        <RainbowKitProvider initialChain={mezoTestnet} theme={lightTheme({ accentColor: "#7A5C2E", accentColorForeground: "#F6EEDC", borderRadius: "small", fontStack: "system" })}>
           {children}
         </RainbowKitProvider>
       </QueryClientProvider>
