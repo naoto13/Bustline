@@ -14,10 +14,11 @@ Plan / progress: [bot_list#684](https://github.com/naoto13/bot_list/issues/684) 
 ## Why it fits Mezo
 - **MUSD everywhere**: margin, house cash, queue payouts and staker revenue are all MUSD (demo MUSD was minted by opening a
   real MUSD Trove on testnet).
-- **Skip Connect BTC/USD** price (Mezo's native oracle), optional **Pyth** deviation guard.
+- **Pyth BTC/USD (mainnet "stable" feed) as the primary price**, pulled by the keeper and verified on-chain by Mezo's
+  Pyth contract; **Skip Connect BTC/USD** (Mezo's native oracle) as a ±1% sanity bound. See [Oracle](#oracle).
 - **Oracle-timing safety first** — Mezo's Velar perp was drained via oracle-update timing (see Mezo's post-mortem). Here
-  every open/close is **2-step**: the request escrows margin, and a keeper fills it only at an oracle update **strictly
-  later** than the request block, within a 5-minute window (otherwise refundable). Keepers can't pick a stale price and
+  every open/close is **2-step**: the request escrows margin, and a keeper fills it only at a price **published strictly
+  later** than the request block (Pyth `publishTime` / signed-report time), within a 5-minute window (otherwise refundable). Keepers can't pick a stale price and
   traders can't trade against a price they already saw.
 
 ## Mechanics
@@ -29,17 +30,33 @@ Plan / progress: [bot_list#684](https://github.com/naoto13/bot_list/issues/684) 
 | Losses | lose up to the margin; 2% loss fee to stakers **only when the queue is empty and someone is staking** (otherwise 100% to the house) |
 | Liquidation | hard bust: trigger = zero-equity price moved 5 bps toward entry; full margin forfeited; 0.5% of margin to the liquidator, 2% to stakers (queue empty) — permissionless `liquidate()`; a close that lands past the trigger is treated as a bust |
 | House & queue | `houseEquity = houseCash − queueTotal` (may go negative by design). Margin is always returned immediately; only profit can be queued. `harvest(n)` (anyone; auto-called on each loss) pays FIFO. New winners never jump the queue |
-| Rebate token | minted on realised loss (liquidations: full margin): 100 tokens / MUSD while house equity < threshold, then `flat·(S/(S+H))²` with a ratcheting high-water-mark H. Non-transferable flag (owner can enable). Placeholder name "House Rebate Point" (HRP), set at deploy |
+| Rebate token | minted on realised loss (liquidations: full margin): 100 tokens / MUSD while house equity < threshold, then `flat·(S/(S+H))²` with a ratcheting high-water-mark H. Non-transferable flag (owner can enable). Name **Mezo Paper** (`MPAPER`) — a nod to Papertrade, whose public docs inspired the mechanism |
 | Staking | `stake / unstake / claim` MUSD (accumulator). Revenue: loss/win/liq fees + house cash above `houseCap` (`sweepExcess`) |
 
 Invariant (checked after every step in fuzz/fork tests and demo): `MUSD held == houseCash + open margin + escrow`.
 
+## Oracle
+Settlement (fills + liquidations) is driven by the keeper, so the oracle is **pull-based**: the keeper fetches a fresh
+price update and submits it **inside the same tx** as `executeOrder(id, priceUpdate)` / `liquidate(id, priceUpdate)`
+(`msg.value` pays the update fee). `HouseExchange` only talks to `IPriceOracle` (`update / latest / peek / updateFee`),
+and the owner can switch sources with one `setOracle` tx.
+
+| Source | Contract | Trust | Status (2026-10-21) |
+|---|---|---|---|
+| **Pyth pull (primary)** | `oracles/PythPullOracle` → Mezo Pyth `0x2880…7B43` `updatePriceFeeds` + read, maxAge 60 s, conf ≤ 1%, Skip ±1% | Wormhole guardians (trustless w.r.t. keeper) | Verified: Mezo **testnet** Pyth uses the same guardian set + Pythnet emitter as Base mainnet and **accepts mainnet-signed (stable) BTC/USD updates** (eth_call + `test/fork/PythFork.t.sol` with a real update). Live use needs a Hermes API key (Hermes requires `Authorization: Bearer` since 2026-08) → set `PYTH_API_KEY`, deploy with `ORACLE_MODE=pyth` or `setOracle(PythPullOracle)` |
+| **Keeper-signed (fallback, live)** | `oracles/SignedPriceOracle`: ECDSA (EIP-191) report `(chainid, oracle, price, publishTime)` from an authorized signer; newer-than-stored, ≤ 10 s in the future, maxAge 60 s, **within 1% of Skip** | **Trusts the signer** for prices inside the ±1% Skip band and for liveness | Live on testnet; price = median of Coinbase / Kraken / Bitstamp spot (≥ 2 sources, ≤ 0.5% spread) |
+| Skip only | `OracleAdapter` (no `answeredInRound` check — Skip returns 0) | Mezo validators | legacy v1 market |
+
+2-step rule: `executeOrder` reverts `NotYetFillable` unless the oracle's `publishTime > order.createdAt`, so neither the
+trader nor the keeper can fill at a price that was already public when the order was placed. The Skip bound is skipped
+if Skip itself is stale (> 300 s), so a Skip outage can't freeze the market; the primary's own staleness check still applies.
+
 ## Repo layout
 | Path | What |
 |---|---|
-| `src/` | `HouseExchange`, `RebateToken`, `RebateStaking`, `libraries/ImpactLib`, `OracleAdapter` (Skip), mocks |
-| `test/` | unit + fuzz (`HouseExchange.t.sol`), fork suite on real testnet MUSD (`test/fork/`) |
-| `script/` | `DeployLocal` (anvil), `DeployTestnet` (Skip market), `DeployTestnetDemo` (MockOracle crash-demo market) |
+| `src/` | `HouseExchange`, `RebateToken`, `RebateStaking`, `libraries/ImpactLib`, `oracles/` (Pyth pull, signed fallback, Skip bound), `OracleAdapter` (Skip), mocks |
+| `test/` | unit + fuzz (`HouseExchange.t.sol`, `Oracles.t.sol`), fork suites on real testnet MUSD + real Mezo Pyth with a real mainnet-signed update (`test/fork/`, fixture in `test/fixtures/`) |
+| `script/` | `DeployLocal` (anvil), `DeployTestnet` (Pyth + signed oracles, `ORACLE_MODE=signed|pyth`), `DeployTestnetDemo` (MockOracle crash-demo market) |
 | `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh` |
 | `keeper/` | Python keeper (fills, liquidations, harvest; Telegram dry-run) + testnet operator CLI |
 | `frontend/` | Next.js 14 + Mezo Passport: trade panel, positions + liquidation price, rebate stake/claim, queue position |
@@ -60,6 +77,7 @@ Testnet: see [`docs/TESTNET-DEPLOY.md`](docs/TESTNET-DEPLOY.md) and [`docs/testn
 ## Known limitations
 - Unaudited, written in days. Single market, isolated margin, no partial closes, no session keys / relayer.
 - Keeper set is permissioned (owner-whitelisted) so traders can't time their own fills; expired orders are refundable.
+- Live testnet market runs on the keeper-signed fallback until a Hermes API key is configured (see [Oracle](#oracle)).
 - Skip on Mezo testnet returns `answeredInRound = 0`, so the adapter relies on `updatedAt` freshness only.
 - The anvil fork can't execute Mezo's precompiles (Skip), so local/fork runs use `MockOracle`; MUSD is the real bytecode.
 - Mint curve & haircut parameters are copied from public docs as a starting point, not tuned for Mezo.
