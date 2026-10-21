@@ -1,9 +1,9 @@
-# BTC House Perp on Mezo (`mezo-perp`) — Buildathon MVP
+# Bustline — BTC/USD perp on Mezo (repo `mezo-perp`) — Buildathon MVP
 
 > **TESTNET DEMO / UNAUDITED.** Mezo testnet (chainId `31611`) only. Up to 100x leverage — losses can be total.
 > Private repo until publication is approved.
 
-A single-market **BTC/USD synthetic perpetual** margined in **MUSD**. The counterparty is a **house that starts at 0 MUSD
+**Bustline** is a single-market **BTC/USD synthetic perpetual** margined in **MUSD**. The counterparty is a **house that starts at 0 MUSD
 and is funded only by trader losses** (no external LP deposits). Winners are paid from the house; when it can't pay,
 the remainder waits in a **FIFO payout queue** that later losses repay. Every realised loss mints a **non-transferable
 rebate token** that can be **staked for MUSD revenue share**. No funding, no spread; winning closes pay an asymmetric

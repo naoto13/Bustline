@@ -23,7 +23,7 @@ class TelegramNotifier:
     chat_id: Optional[str] = None
     message_thread_id: Optional[int] = None
     dry_run: bool = False
-    bot_name: str = "mezo-perp keeper"
+    bot_name: str = "Bustline keeper"
     retry_attempts: int = 3
     retry_base_delay: float = 1.0
     printer: Callable[[str], None] = print

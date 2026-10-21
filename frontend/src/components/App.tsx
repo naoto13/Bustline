@@ -179,7 +179,7 @@ function Dashboard() {
         TESTNET DEMO / UNAUDITED — {MODE === "local" ? `local anvil fork (${RPC_URL}), unlocked anvil accounts, no keys` : "Mezo testnet (31611) via Mezo Passport"}. Max 100x. Losses can be total.
       </div>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <h2 style={{ margin: 0 }}>BTC House Perp <span className="k">· MUSD-margined · house funded only by trader losses</span></h2>
+        <h2 style={{ margin: 0 }}>Bustline <span className="k">· BTC/USD perp · MUSD-margined · house funded only by trader losses</span></h2>
         {MODE === "local" ? (
           <select value={acct} onChange={(e) => setAcct(e.target.value as Address)} style={{ width: 260 }}>
             {ANVIL_ACCOUNTS.map((a) => <option key={a.address} value={a.address}>{a.label} {a.address.slice(0, 8)}…</option>)}

@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "BTC House Perp on Mezo — testnet demo",
+  title: "Bustline — BTC perp on Mezo (testnet demo)",
   description: "BTC/USD synthetic perp margined in MUSD; house funded by trader losses. Testnet only, unaudited.",
 };
 

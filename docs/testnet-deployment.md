@@ -1,4 +1,4 @@
-# Mezo testnet deployment (chainId 31611)
+# Bustline — Mezo testnet deployment (chainId 31611)
 
 Deployed 2026-10-21 (JST) from the user's disposable testnet address `0x715211CAdb65Cc184c955B283933A1F7021d00b0`
 (key supplied via the `MEZO_TESTNET_PRIVATE_KEY` env var only; never written to disk or argv). Unaudited demo.

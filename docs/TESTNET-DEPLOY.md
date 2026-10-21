@@ -1,4 +1,4 @@
-# Testnet deploy & operations (Mezo testnet only)
+# Bustline — testnet deploy & operations (Mezo testnet only)
 
 Rules: chainId 31611 / https://rpc.test.mezo.org only. The key comes ONLY from `MEZO_TESTNET_PRIVATE_KEY` in the
 environment — never on argv, never in files, never printed. Every write needs an explicit confirm flag.
