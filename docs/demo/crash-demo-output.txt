@@ -1,0 +1,63 @@
+══ 0. fresh house (no LP deposits — starts at 0 MUSD)
+   🏦 house cash 0.00 MUSD | queued 0.00 | equity 0.00 | accountingDelta 0
+══ 1. requests: ALICE long 1,000×50 · BOB short 1,000×50 · CAROL long 200×100 · DAVE long 500×20
+   keeper before any new oracle update (2-step rule → must wait):
+   🤖 [keeper] BTC/USD $83,036.30 (age 5s) | house cash 0.00 MUSD | queued 0.00 | equity 0.00 | OI L 0.00 / S 0.00 | open 0 | orders 4 | {'filled': [], 'waiting': [0, 1, 2, 3], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   📈 oracle BTC/USD → $83,036.30
+   🤖 [keeper] BTC/USD $83,036.30 (age 1s) | house cash 0.00 MUSD | queued 0.00 | equity 0.00 | OI L 80,000.00 / S 50,000.00 | open 4 | orders 4 | {'filled': [0, 1, 2, 3], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   #0 bust price $81,417.10
+   #1 bust price $84,655.51
+   #2 bust price $82,247.46
+   #3 bust price $78,926.01
+══ 2. BTC +1.0% → ALICE closes in profit; house is empty → profit goes to the FIFO payout queue
+   📈 oracle BTC/USD → $83,866.67
+   📈 oracle BTC/USD → $83,866.67
+   🤖 [keeper] BTC/USD $83,866.67 (age 0s) | house cash 0.00 MUSD | queued 431.92 | equity -431.92 | OI L 30,000.00 / S 50,000.00 | open 3 | orders 5 | {'filled': [4], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   🏦 house cash 0.00 MUSD | queued 431.92 | equity -431.92 | accountingDelta 0
+   👤 ALICE MUSD 100,000.00 | queued 431.92 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 BOB MUSD 99,000.00 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 CAROL MUSD 99,800.00 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 DAVE MUSD 99,500.00 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+══ 3. CRASH −6% → CAROL (100x) and DAVE (20x) hard-bust; keeper liquidates; their margin repays ALICE first
+   📈 oracle BTC/USD → $78,834.67
+   🤖 [keeper] BTC/USD $78,834.67 (age 1s) | house cash 264.58 MUSD | queued 0.00 | equity 264.58 | OI L 0.00 / S 50,000.00 | open 1 | orders 5 | {'filled': [], 'waiting': [], 'liquidated': [3, 2], 'harvested': False, 'at_risk': [3, 2]}
+   🏦 house cash 264.58 MUSD | queued 0.00 | equity 264.58 | accountingDelta 0
+   👤 ALICE MUSD 100,431.92 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 BOB MUSD 99,000.00 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 CAROL MUSD 99,800.00 | queued 0.00 | rebate 20,000.00 | staked 0.00 | pending 0.00
+   👤 DAVE MUSD 99,500.00 | queued 0.00 | rebate 50,000.00 | staked 0.00 | pending 0.00
+══ 4. BOB (short) closes in profit after the crash → paid from house cash or queued
+   📈 oracle BTC/USD → $78,834.67
+   🤖 [keeper] BTC/USD $78,834.67 (age 0s) | house cash 0.00 MUSD | queued 1,957.68 | equity -1,957.68 | OI L 0.00 / S 0.00 | open 0 | orders 6 | {'filled': [5], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   🏦 house cash 0.00 MUSD | queued 1,957.68 | equity -1957.68 | accountingDelta 0
+══ 5. CAROL & DAVE stake their non-transferable rebate tokens (transfer to a wallet must revert)
+   ✅ wallet-to-wallet transfer reverted (NonTransferable)
+══ 6. Volatility: ALICE re-enters long 2,000×25, BTC −4.5% → liquidated; margin repays BOB (liq fee waived while queue active)
+   📈 oracle BTC/USD → $78,834.67
+   🤖 [keeper] BTC/USD $78,834.67 (age 0s) | house cash 0.00 MUSD | queued 1,957.68 | equity -1,957.68 | OI L 50,000.00 / S 0.00 | open 1 | orders 7 | {'filled': [6], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   📈 oracle BTC/USD → $75,287.11
+   🤖 [keeper] BTC/USD $75,287.11 (age 1s) | house cash 32.32 MUSD | queued 0.00 | equity 32.32 | OI L 0.00 / S 0.00 | open 0 | orders 7 | {'filled': [], 'waiting': [], 'liquidated': [4], 'harvested': False, 'at_risk': [4]}
+   🏦 house cash 32.32 MUSD | queued 0.00 | equity 32.32 | accountingDelta 0
+   👤 ALICE MUSD 98,431.92 | queued 0.00 | rebate 200,000.00 | staked 0.00 | pending 0.00
+   👤 BOB MUSD 102,222.26 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 CAROL MUSD 99,800.00 | queued 0.00 | rebate 0.00 | staked 20,000.00 | pending 0.00
+   👤 DAVE MUSD 99,500.00 | queued 0.00 | rebate 0.00 | staked 50,000.00 | pending 0.00
+══ 7. Queue is empty now: DAVE shorts 1,000×10, BTC +3% → losing close; 2% loss fee → stakers
+   📈 oracle BTC/USD → $75,287.11
+   🤖 [keeper] BTC/USD $75,287.11 (age 0s) | house cash 32.32 MUSD | queued 0.00 | equity 32.32 | OI L 0.00 / S 10,000.00 | open 1 | orders 8 | {'filled': [7], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   📈 oracle BTC/USD → $77,545.72
+   📈 oracle BTC/USD → $77,545.72
+   🤖 [keeper] BTC/USD $77,545.72 (age 0s) | house cash 326.32 MUSD | queued 0.00 | equity 326.32 | OI L 0.00 / S 0.00 | open 0 | orders 9 | {'filled': [8], 'waiting': [], 'liquidated': [], 'harvested': False, 'at_risk': []}
+   🏦 house cash 326.32 MUSD | queued 0.00 | equity 326.32 | accountingDelta 0
+   👤 ALICE MUSD 98,431.92 | queued 0.00 | rebate 200,000.00 | staked 0.00 | pending 0.00
+   👤 BOB MUSD 102,222.26 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 CAROL MUSD 99,800.00 | queued 0.00 | rebate 0.00 | staked 20,000.00 | pending 1.71
+   👤 DAVE MUSD 99,200.00 | queued 0.00 | rebate 29,400.00 | staked 50,000.00 | pending 4.29
+══ 8. stakers claim MUSD revenue share
+   👤 ALICE MUSD 98,431.92 | queued 0.00 | rebate 200,000.00 | staked 0.00 | pending 0.00
+   👤 BOB MUSD 102,222.26 | queued 0.00 | rebate 0.00 | staked 0.00 | pending 0.00
+   👤 CAROL MUSD 99,801.71 | queued 0.00 | rebate 0.00 | staked 20,000.00 | pending 0.00
+   👤 DAVE MUSD 99,204.29 | queued 0.00 | rebate 29,400.00 | staked 50,000.00 | pending 0.00
+══ summary
+   🏦 house cash 326.32 MUSD | queued 0.00 | equity 326.32 | accountingDelta 0
+   cumulative losses 2,980.50 | paid to winners 2,654.18 | to stakers 6.00 | queue entries 2 head 2

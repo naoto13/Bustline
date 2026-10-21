@@ -1,0 +1,13 @@
+{
+  "decimals()": "313ce567",
+  "latestRoundData()": "feaf968c",
+  "maxStaleness()": "87cf4696",
+  "owner()": "8da5cb5b",
+  "price()": "a035b1fe",
+  "priceValue()": "95115b22",
+  "roundId()": "8cd221c9",
+  "setMaxStaleness(uint256)": "100bc9e1",
+  "setPrice(uint256)": "91b7f5ed",
+  "setPriceRaw(uint256,uint256)": "29628f7b",
+  "updatedAt()": "7519ab50"
+}

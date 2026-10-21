@@ -20,7 +20,6 @@ contract OracleAdapter is IOracleAdapter {
 
     error StalePrice();
     error InvalidPrice();
-    error IncompleteRound();
 
     constructor(address feed_, uint256 maxStaleness_) {
         feed = IAggregatorV3(feed_);
@@ -28,8 +27,9 @@ contract OracleAdapter is IOracleAdapter {
     }
 
     function price() external view returns (uint256) {
-        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) = feed.latestRoundData();
-        if (answeredInRound < roundId) revert IncompleteRound();
+        // NOTE: Skip on Mezo testnet returns answeredInRound = 0 (verified 2026-10-21 via eth_call), so the usual
+        // Chainlink `answeredInRound >= roundId` check would always revert; we rely on updatedAt freshness instead.
+        (, int256 answer,, uint256 updatedAt,) = feed.latestRoundData();
         if (block.timestamp > updatedAt + maxStaleness) revert StalePrice();
         if (answer <= 0) revert InvalidPrice();
 
