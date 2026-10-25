@@ -11,7 +11,7 @@ RPC = "https://rpc.test.mezo.org"
 
 def rpc(m, p):
     r = urllib.request.Request(RPC, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}).encode(),
-                               headers={"Content-Type": "application/json", "User-Agent": "mezo-perp-events"})
+                               headers={"Content-Type": "application/json", "User-Agent": "bustline-events"})
     j = json.loads(urllib.request.urlopen(r, timeout=30).read())
     if "error" in j:
         raise RuntimeError(j["error"])

@@ -9,7 +9,7 @@ import { PythPullOracle } from "../src/oracles/PythPullOracle.sol";
 import { SignedPriceOracle } from "../src/oracles/SignedPriceOracle.sol";
 import { MezoTestnet, MezoExtra } from "./MezoTestnet.sol";
 
-/// @title DeployTestnet — Mezo TESTNET (chainId 31611) deployment. See docs/TESTNET-DEPLOY.md.
+/// @title DeployTestnet — Mezo TESTNET (chainId 31611) deployment. See docs/OPERATIONS.md.
 /// @notice Guards: chainId must be 31611, CONFIRM_TESTNET_DEPLOY=1 must be set, and the key is read ONLY from the
 ///         MEZO_TESTNET_PRIVATE_KEY env var (never pass it on the command line, never write it to disk).
 ///         Without `--broadcast` forge only simulates.

@@ -20,7 +20,7 @@ from .abi import call_bytes_array, report_hash, signed_report
 from .rpc import JsonRpc, RpcError, words
 
 W = 10**18
-UA = {"User-Agent": "mezo-perp-keeper/0.2"}
+UA = {"User-Agent": "bustline-keeper/0.2"}
 PYTH_BTC_USD = "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
 UPDATE_FEE_SEL = "0x7311cdcf"  # updateFee(bytes[]) — checked in tests against keccak
 

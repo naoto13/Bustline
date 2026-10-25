@@ -25,7 +25,7 @@ class JsonRpc:
     def call(self, method: str, params: list | None = None) -> Any:
         self._id += 1
         body = json.dumps({"jsonrpc": "2.0", "id": self._id, "method": method, "params": params or []}).encode()
-        req = urllib.request.Request(self.url, data=body, headers={"Content-Type": "application/json", "User-Agent": "mezo-perp-keeper/0.1"})
+        req = urllib.request.Request(self.url, data=body, headers={"Content-Type": "application/json", "User-Agent": "bustline-keeper/0.1"})
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 (operator-provided URL)
             payload = json.loads(resp.read())
         if "error" in payload:

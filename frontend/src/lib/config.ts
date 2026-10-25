@@ -1,7 +1,7 @@
 export type Mode = "local" | "testnet";
 export const MODE: Mode = process.env.NEXT_PUBLIC_MODE === "testnet" ? "testnet" : "local";
 export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || (MODE === "local" ? "http://127.0.0.1:8545" : "https://rpc.test.mezo.org");
-export const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "mezo-perp-local-dev";
+export const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "bustline-local-dev";
 export const CHAIN_ID = 31611;
 
 /** anvil default accounts (addresses only — unlocked on anvil, no keys involved) */

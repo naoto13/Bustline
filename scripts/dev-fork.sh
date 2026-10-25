@@ -19,7 +19,7 @@ if [[ "${RESTART_ANVIL:-1}" == "1" ]]; then
   sleep 1
   echo "▶ starting anvil fork of ${FORK_URL} on ${RPC} (chainId 31611)"
   nohup anvil --fork-url "$FORK_URL" --chain-id 31611 --hardfork london --port "$PORT" --silent \
-    > /tmp/mezo-perp-anvil.log 2>&1 &
+    > /tmp/bustline-anvil.log 2>&1 &
   for _ in $(seq 1 30); do cast chain-id --rpc-url "$RPC" >/dev/null 2>&1 && break; sleep 1; done
 fi
 [[ "$(cast chain-id --rpc-url "$RPC")" == "31611" ]] || { echo "anvil not up"; exit 1; }

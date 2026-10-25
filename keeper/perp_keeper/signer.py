@@ -2,7 +2,7 @@
 
 Why not forge/cast: forge scripts simulate locally first and the forked EVM cannot execute Mezo's Skip oracle
 precompile (EvmError: NotActivated), and cast only accepts the key on argv. This signer keeps the key out of argv,
-logs and files. Requires `eth-account` (keeper/.venv, see docs/TESTNET-DEPLOY.md).
+logs and files. Requires `eth-account` (keeper/.venv, see docs/OPERATIONS.md).
 Guards: RPC host must be rpc.test.mezo.org and chainId must be 31611.
 """
 

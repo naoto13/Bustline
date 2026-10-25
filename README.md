@@ -1,92 +1,139 @@
-# Bustline — BTC/USD perp on Mezo (repo `mezo-perp`) — Buildathon MVP
+# Bustline
 
-> **TESTNET DEMO / UNAUDITED.** Mezo testnet (chainId `31611`) only. Up to 100x leverage — losses can be total.
-> Private repo until publication is approved.
+**A 100x BTC/USD perpetual on Mezo, margined in MUSD, where the house is funded only by trader losses.**
 
-**Bustline** is a single-market **BTC/USD synthetic perpetual** margined in **MUSD**. The counterparty is a **house that starts at 0 MUSD
-and is funded only by trader losses** (no external LP deposits). Winners are paid from the house; when it can't pay,
-the remainder waits in a **FIFO payout queue** that later losses repay. Every realised loss mints a **non-transferable
-rebate token** that can be **staked for MUSD revenue share**. No funding, no spread; winning closes pay an asymmetric
-impact haircut + 2% win fee.
+> **Testnet demo, unaudited.** Runs on Mezo testnet (chainId `31611`) only. Up to 100x leverage — losses can be total.
 
-Plan / progress: [bot_list#684](https://github.com/naoto13/bot_list/issues/684) (fallback: levBTC, #601).
+- **Live app:** https://bustline-c8p.pages.dev (Mezo testnet, connect with Mezo Passport)
+- **Contracts & on-chain proof:** [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md)
+- **Demo video:** _TBD_
 
-## Why it fits Mezo
-- **MUSD everywhere**: margin, house cash, queue payouts and staker revenue are all MUSD (demo MUSD was minted by opening a
-  real MUSD Trove on testnet).
-- **Pyth BTC/USD (mainnet "stable" feed) as the primary price**, pulled by the keeper and verified on-chain by Mezo's
-  Pyth contract; **Skip Connect BTC/USD** (Mezo's native oracle) as a ±1% sanity bound. See [Oracle](#oracle).
-- **Oracle-timing safety first** — Mezo's Velar perp was drained via oracle-update timing (see Mezo's post-mortem). Here
-  every open/close is **2-step**: the request escrows margin, and a keeper fills it only at a price **published strictly
-  later** than the request block (Pyth `publishTime` / signed-report time), within a 5-minute window (otherwise refundable). Keepers can't pick a stale price and
-  traders can't trade against a price they already saw.
+![Bustline trade screen on Mezo testnet](docs/demo/frontend-testnet.png)
 
-## Mechanics
+## What it is
+
+Bustline is a single-market **BTC/USD synthetic perpetual**. There are no LP deposits: the counterparty is a **house that
+starts at 0 MUSD** and grows only from trader losses.
+
+- **Winners** are paid from the house. When the house can't pay, the remainder waits in a **FIFO payout queue** that
+  later losses repay. Margin is always returned immediately; only profit can be queued.
+- **Losers** receive a **non-transferable rebate token, Mezo Paper (`MPAPER`)**, that can be **staked for MUSD revenue
+  share** (fees + house cash above a cap).
+- **No funding, no spread.** Winning closes pay an asymmetric impact haircut + 2% win fee. Positions that cross their
+  bust price are liquidated in full.
+
+The result is a perp that can launch with zero liquidity and never pays out more than it holds: profit beyond house cash
+is queued, so house equity (`houseCash − queueTotal`) may go negative while the contract stays fully backed — the invariant
+`MUSD held == houseCash + open margin + escrow` is checked after every step in the fuzz/fork tests and the demo.
+
+## Built for Mezo
+
 | | |
 |---|---|
-| Market | BTC/USD, isolated margin, `size = margin × leverage`, 1–100x (param), min margin 10 MUSD, max size + per-side OI caps |
-| Fills | `requestOpen / requestClose` → keeper `executeOrder` at a later oracle update; slippage / OI-cap failures cancel + refund |
-| Wins | deadband (exit measured `entry/50,000` worse) → `scale = (1−base)/(1 + 1/(move·rateMult) + refNotional/(1e6·move·posMult))` (BTC: base 10%, rateMult 15,000, refNotional $100k, posMult 814.598) → 2% win fee. ≈88% of raw gain kept at a 1% move, ≈74% at 0.1% |
-| Losses | lose up to the margin; 2% loss fee to stakers **only when the queue is empty and someone is staking** (otherwise 100% to the house) |
-| Liquidation | hard bust: trigger = zero-equity price moved 5 bps toward entry; full margin forfeited; 0.5% of margin to the liquidator, 2% to stakers (queue empty) — permissionless `liquidate()`; a close that lands past the trigger is treated as a bust |
-| House & queue | `houseEquity = houseCash − queueTotal` (may go negative by design). Margin is always returned immediately; only profit can be queued. `harvest(n)` (anyone; auto-called on each loss) pays FIFO. New winners never jump the queue |
-| Rebate token | minted on realised loss (liquidations: full margin): 100 tokens / MUSD while house equity < threshold, then `flat·(S/(S+H))²` with a ratcheting high-water-mark H. Non-transferable flag (owner can enable). Name **Mezo Paper** (`MPAPER`) — a nod to Papertrade, whose public docs inspired the mechanism |
-| Staking | `stake / unstake / claim` MUSD (accumulator). Revenue: loss/win/liq fees + house cash above `houseCap` (`sweepExcess`) |
+| **MUSD everywhere** | Margin, house cash, queue payouts and staker revenue are all MUSD. Testnet MUSD was minted by opening a real MUSD Trove. |
+| **Mezo Passport** | The frontend signs every write through Mezo Passport (BTC wallets such as Unisat / OKX / Xverse, plus EVM wallets). |
+| **Pyth on Mezo, verified** | Mezo testnet's Pyth contract accepts **mainnet-signed BTC/USD updates** — proven with a real Base-mainnet update in `test/fork/PythFork.t.sol`. `PythPullOracle` is deployed and switch-ready. |
+| **Skip Connect as a guard rail** | Every price must be within **±1% of Skip Connect BTC/USD**, Mezo's native oracle. |
+| **Oracle-timing safety** | Mezo's Velar PerpDEX was drained via oracle-update timing ([post-mortem](https://mezo.org/blog/velars-perpdex-exploited-on-mezo/)). Bustline makes every open/close **2-step**, so no one can trade against a price they have already seen (below). |
 
-Invariant (checked after every step in fuzz/fork tests and demo): `MUSD held == houseCash + open margin + escrow`.
+## How a trade works
+
+```text
+trader                       HouseExchange                      keeper
+  │ requestOpen / requestClose ─▶ escrow margin, record block time
+  │                                                     fetch a price published AFTER the request
+  │                              executeOrder(id, priceUpdate) ◀─┘  (price update rides in the same tx)
+  │                              ├─ verify signature / Pyth proof, staleness ≤ 60 s, within ±1% of Skip
+  │                              ├─ publishTime > request time, else revert NotYetFillable
+  │ ◀── position opened / closed (profit paid or queued, loss → house + MPAPER minted)
+```
+
+- Orders not filled within 5 minutes become refundable. Slippage or OI-cap failures cancel and refund.
+- `liquidate(id, priceUpdate)` is permissionless; the keeper calls it with a fresh price in the same tx.
+
+## Mechanics
+
+| | |
+|---|---|
+| Market | BTC/USD, isolated margin, `size = margin × leverage`, 1–100x, min margin 10 MUSD, max size + per-side OI caps |
+| Wins | Deadband (exit measured `entry/50,000` worse) → `scale = (1−base)/(1 + 1/(move·rateMult) + refNotional/(1e6·move·posMult))` (BTC: base 10%, rateMult 15,000, refNotional $100k, posMult 814.598) → 2% win fee. ≈88% of raw gain kept at a 1% move, ≈74% at 0.1% |
+| Losses | Lose up to the margin. 2% loss fee goes to stakers **only when the queue is empty and someone is staking**; otherwise 100% to the house |
+| Liquidation | Hard bust: trigger = zero-equity price moved 5 bps toward entry; full margin forfeited; 0.5% of margin to the liquidator, 2% to stakers (queue empty). A close that lands past the trigger is treated as a bust |
+| Payout queue | `harvest(n)` (anyone; auto-called on each loss) pays FIFO. New winners never jump the queue |
+| MPAPER | Minted on realised loss (liquidations: full margin): 100 / MUSD while house equity < threshold, then `flat·(S/(S+H))²` with a ratcheting high-water-mark H. Non-transferable (the owner can enable transfers) |
+| Staking | `stake / unstake / claim` MUSD (accumulator). Revenue: loss/win/liquidation fees + house cash above `houseCap` (`sweepExcess`) |
 
 ## Oracle
-Settlement (fills + liquidations) is driven by the keeper, so the oracle is **pull-based**: the keeper fetches a fresh
-price update and submits it **inside the same tx** as `executeOrder(id, priceUpdate)` / `liquidate(id, priceUpdate)`
-(`msg.value` pays the update fee). `HouseExchange` only talks to `IPriceOracle` (`update / latest / peek / updateFee`),
-and the owner can switch sources with one `setOracle` tx.
 
-| Source | Contract | Trust | Status (2026-10-21) |
-|---|---|---|---|
-| **Pyth pull (primary)** | `oracles/PythPullOracle` → Mezo Pyth `0x2880…7B43` `updatePriceFeeds` + read, maxAge 60 s, conf ≤ 1%, Skip ±1% | Wormhole guardians (trustless w.r.t. keeper) | Verified: Mezo **testnet** Pyth uses the same guardian set + Pythnet emitter as Base mainnet and **accepts mainnet-signed (stable) BTC/USD updates** (eth_call + `test/fork/PythFork.t.sol` with a real update). Live use needs a Hermes API key (Hermes requires `Authorization: Bearer` since 2026-08) → set `PYTH_API_KEY`, deploy with `ORACLE_MODE=pyth` or `setOracle(PythPullOracle)` |
-| **Keeper-signed (fallback, live)** | `oracles/SignedPriceOracle`: ECDSA (EIP-191) report `(chainid, oracle, price, publishTime)` from an authorized signer; newer-than-stored, ≤ 10 s in the future, maxAge 60 s, **within 1% of Skip** | **Trusts the signer** for prices inside the ±1% Skip band and for liveness | Live on testnet; price = median of Coinbase / Kraken / Bitstamp spot (≥ 2 sources, ≤ 0.5% spread) |
-| Skip only | `OracleAdapter` (no `answeredInRound` check — Skip returns 0) | Mezo validators | legacy v1 market |
+Settlement is keeper-driven, so the oracle is **pull-based**: the keeper submits a fresh price update inside the same tx
+as `executeOrder` / `liquidate` (`msg.value` pays the update fee). `HouseExchange` only talks to `IPriceOracle`, and the
+owner can switch sources with one `setOracle` tx.
 
-2-step rule: `executeOrder` reverts `NotYetFillable` unless the oracle's `publishTime > order.createdAt`, so neither the
-trader nor the keeper can fill at a price that was already public when the order was placed. The Skip bound is skipped
-if Skip itself is stale (> 300 s), so a Skip outage can't freeze the market; the primary's own staleness check still applies.
+| Source | Trust | Status |
+|---|---|---|
+| **Pyth pull** (`oracles/PythPullOracle`) — Mezo Pyth `updatePriceFeeds`, maxAge 60 s, conf ≤ 1%, Skip ±1% | Wormhole guardians; trustless w.r.t. the keeper | Deployed and verified on Mezo testnet. Going live only needs a Pyth Hermes API key (`PYTH_API_KEY`) and one `setOracle` call |
+| **Keeper-signed** (`oracles/SignedPriceOracle`) — EIP-191 report `(chainid, oracle, price, publishTime)`; newer than stored, ≤ 10 s in the future, maxAge 60 s, within 1% of Skip | Trusts the signer inside the ±1% Skip band, and for liveness | **Active on testnet.** Price = median of Coinbase / Kraken / Bitstamp spot (≥ 2 sources, ≤ 0.5% spread) |
 
-## Repo layout
+If Skip itself is stale (> 300 s) the ±1% bound is skipped, so a Skip outage can't freeze the market; the primary
+oracle's own staleness check still applies.
+
+## Repository layout
+
 | Path | What |
 |---|---|
-| `src/` | `HouseExchange`, `RebateToken`, `RebateStaking`, `libraries/ImpactLib`, `oracles/` (Pyth pull, signed fallback, Skip bound), `OracleAdapter` (Skip), mocks |
-| `test/` | unit + fuzz (`HouseExchange.t.sol`, `Oracles.t.sol`), fork suites on real testnet MUSD + real Mezo Pyth with a real mainnet-signed update (`test/fork/`, fixture in `test/fixtures/`) |
-| `script/` | `DeployLocal` (anvil), `DeployTestnet` (Pyth + signed oracles, `ORACLE_MODE=signed|pyth`), `DeployTestnetDemo` (MockOracle crash-demo market) |
-| `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh` |
-| `keeper/` | Python keeper (fills, liquidations, harvest; Telegram dry-run) + testnet operator CLI |
-| `frontend/` | Next.js 14 + Mezo Passport: trade panel, positions + liquidation price, rebate stake/claim, queue position |
-| `docs/` | `testnet-deployment.md` (addresses + on-chain events), `TESTNET-DEPLOY.md`, demo recordings |
+| `src/` | `HouseExchange`, `RebateToken` (MPAPER), `RebateStaking`, `libraries/ImpactLib`, `oracles/` (Pyth pull, signed, Skip bound), mocks |
+| `test/` | Unit + fuzz (`HouseExchange.t.sol`, `Oracles.t.sol`); fork suites against real testnet MUSD and real Mezo Pyth with a mainnet-signed update (`test/fork/`) |
+| `script/` | `DeployLocal` (anvil), `DeployTestnet` (`ORACLE_MODE=signed\|pyth`), `DeployTestnetDemo` (mock-oracle crash-demo market) |
+| `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh`, `list-events.py` |
+| `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts) + testnet operator CLI |
+| `frontend/` | Next.js 14 + Mezo Passport: trade screen with bust lines, positions, house & payout queue, MPAPER staking |
+| `docs/` | [`DEPLOYMENTS.md`](docs/DEPLOYMENTS.md) (addresses + on-chain events), [`OPERATIONS.md`](docs/OPERATIONS.md) (deploy & run), `demo/` (recorded outputs) |
 
-## Quick start (local, no keys)
+## Run it
+
+Requires [Foundry](https://book.getfoundry.sh/), Python 3 and Node 18+.
+
 ```bash
-forge test                                                   # unit + fuzz (fork suite auto-skips)
-MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   # same suite on real MUSD (read-only fork)
-./scripts/dev-fork.sh                                        # anvil fork of rpc.test.mezo.org + deploy (unlocked anvil accounts)
-./scripts/demo.sh                                            # crash demo → docs/demo/crash-demo-output.txt
-(cd keeper && python3 -m unittest discover -s tests && python3 -m perp_keeper --status)
-(cd keeper && python3 -m perp_keeper --execute-local --simulate-oracle)   # keeper loop on anvil
-(cd frontend && npm i --legacy-peer-deps && npm run build && npm start)  # http://localhost:3100
+git clone --recurse-submodules https://github.com/naoto13/mezo-paperperp.git && cd mezo-paperperp
+
+forge test                                                  # unit + fuzz (fork suites auto-skip)
+MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   # against real Mezo testnet state (read-only)
+
+./scripts/dev-fork.sh                                       # anvil fork of Mezo testnet + deploy (unlocked anvil accounts, no keys)
+./scripts/demo.sh                                           # crash/volatility demo → docs/demo/crash-demo-output.txt
+(cd keeper && python3 -m unittest discover -s tests)        # keeper tests
+(cd keeper && python3 -m perp_keeper --execute-local --simulate-oracle)   # keeper loop on the local fork
+(cd frontend && npm ci --legacy-peer-deps && npm run build && npm start)  # http://localhost:3100
 ```
-Testnet: see [`docs/TESTNET-DEPLOY.md`](docs/TESTNET-DEPLOY.md) and [`docs/testnet-deployment.md`](docs/testnet-deployment.md).
 
-## Known limitations
-- Unaudited, written in days. Single market, isolated margin, no partial closes, no session keys / relayer.
-- Keeper set is permissioned (owner-whitelisted) so traders can't time their own fills; expired orders are refundable.
-- Live testnet market runs on the keeper-signed fallback until a Hermes API key is configured (see [Oracle](#oracle)).
-- Skip on Mezo testnet returns `answeredInRound = 0`, so the adapter relies on `updatedAt` freshness only.
-- The anvil fork can't execute Mezo's precompiles (Skip), so local/fork runs use `MockOracle`; MUSD is the real bytecode.
-- Mint curve & haircut parameters are copied from public docs as a starting point, not tuned for Mezo.
+The crash demo walks through the whole lifecycle — empty house → winner queued → 100x and 20x longs busted by a −6% move
+→ their margin repays the queue → MPAPER staked and transfer rejected. Output:
+[`docs/demo/crash-demo-output.txt`](docs/demo/crash-demo-output.txt).
 
-## Credits / inspiration
-Independent implementation — no third-party code. Mechanism ideas from public documentation:
-Papertrade docs (asymmetric impact PnL, solvency & payout queue, mint curve, liquidations — https://docs.papertrade.xyz/),
-Rollbit's market-impact PnL model, and Mezo's Velar PerpDEX exploit post-mortem
-(https://mezo.org/blog/velars-perpdex-exploited-on-mezo/). Not affiliated with any of them.
+Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+## Security & limitations
+
+- **Unaudited hackathon build.** Single market, isolated margin, no partial closes, no session keys or relayer.
+- **Admin powers.** The owner can switch the oracle, whitelist keepers, change risk/fee/impact/mint-curve parameters,
+  rotate the price signer and enable MPAPER transfers. On testnet the owner is a single EOA; production would need a
+  multisig + timelock.
+- The live testnet market uses the keeper-signed oracle until a Pyth Hermes API key is configured; the Pyth path is
+  deployed and tested.
+- The keeper set is permissioned (owner whitelist) so traders can't time their own fills; expired orders are refundable.
+- Skip on Mezo testnet returns `answeredInRound = 0`, so the Skip adapter relies on `updatedAt` freshness only.
+- Anvil can't execute Mezo's Skip precompile, so local/fork runs use `MockOracle`; MUSD is the real bytecode.
+- Impact-haircut and mint-curve parameters start from published defaults of the reference designs below and are not
+  yet tuned for Mezo.
+
+## Credits
+
+Bustline is an independent implementation built on [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts)
+and [forge-std](https://github.com/foundry-rs/forge-std). The mechanism design draws on public documentation:
+[Papertrade](https://docs.papertrade.xyz/) (asymmetric impact PnL, solvency & payout queue, mint curve — the name
+"Mezo Paper" is a nod to it), Rollbit's market-impact PnL model, and Mezo's Velar PerpDEX post-mortem.
+Not affiliated with any of them.
 
 ## License
-MIT (hackathon demo). Use at your own risk.
+
+[MIT](LICENSE). Testnet demo — use at your own risk.

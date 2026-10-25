@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-// STATIC_EXPORT=1 builds a static site into ./out for Cloudflare Pages (see docs/DEPLOY-CLOUDFLARE.md).
+// STATIC_EXPORT=1 builds a static site into ./out for Cloudflare Pages (see docs/OPERATIONS.md).
 const staticExport = process.env.STATIC_EXPORT === "1";
 const nextConfig = {
   reactStrictMode: true,

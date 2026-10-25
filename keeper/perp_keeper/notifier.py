@@ -1,4 +1,4 @@
-"""Telegram notifier (adapted from bot_list shared/notifications/telegram.py, stdlib-only).
+"""Telegram notifier (stdlib-only).
 
 Token/chat come from env (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID / TELEGRAM_MESSAGE_THREAD_ID).
 Without a token — or with dry_run=True — messages are printed instead of sent.

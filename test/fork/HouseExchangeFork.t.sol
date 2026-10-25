@@ -7,7 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @notice Re-runs the FULL unit/fuzz suite against the REAL Mezo testnet MUSD bytecode/state, forked from
 ///         MEZO_FORK_URL (a local anvil fork, or https://rpc.test.mezo.org read-only). Nothing is broadcast.
 /// @dev Skip BTC/USD (0x7b7c…0015) is a chain precompile a forked EVM cannot execute → MockOracle (same interface).
-///      Demo MUSD is credited with vm.store on the balances mapping (slot 0, verified in levbtc-mezo).
+///      Demo MUSD is credited with vm.store on the balances mapping (slot 0, verified against the deployed MUSD).
 contract HouseExchangeForkTest is HouseExchangeTest {
     address constant MUSD = 0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503;
 
