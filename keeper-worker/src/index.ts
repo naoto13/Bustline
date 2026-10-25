@@ -363,7 +363,9 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   const tickMs = Number(env.TICK_SECONDS ?? 15) * 1000;
   const runMs = Number(env.RUN_SECONDS ?? 46) * 1000;
   const start = Date.now();
-  const stopAt = Math.min(start, scheduledTime || start) + runMs; // never start a tick after this (next cron at +60s)
+  // never start a tick after this; hard cap 55 s after the scheduled minute (next cron at +60 s). A late retry of an old
+  // schedule therefore does nothing.
+  const stopAt = Math.min(start + runMs, (scheduledTime || start) + 55_000);
   const rpc = new Rpc(env.RPC_URL ?? `https://${TESTNET_HOST}`);
   const acct = privateKeyToAccount(env.KEEPER_PRIVATE_KEY.trim() as Hex);
   const ex = new Executor(rpc, acct, stopAt + 10_000);
