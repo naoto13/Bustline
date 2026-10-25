@@ -187,6 +187,13 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 | Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper and its Cloudflare Worker port, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
 | Wave 2 | Nov 2–15, 2026 | _Planned — updated at submission_ |
 
+## Team
+
+Built by [**PLAN-Z**](https://planz.tech), a Japan-based Web3 product studio (with bases in Vietnam and Thailand) that
+has launched 10 products since 2020 and operates them in-house — including GamingDEX (a Balancer-fork DEX on OASYS L1),
+Neptune (liquid staking on OASYS L1), GEEK Staking (monthly USDC rewards) and DeFiVerse (its own OASYS L2). PLAN-Z also
+runs Yield Farming Lab, a DeFi community of ~15,000 members, and CryptoLoungeGOX, a crypto event lounge in Shinjuku, Tokyo.
+
 ## Credits
 
 Bustline is an independent implementation built on [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts)
