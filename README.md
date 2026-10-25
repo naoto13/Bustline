@@ -10,6 +10,59 @@
 
 ![Bustline trade screen on Mezo testnet](docs/demo/frontend-testnet.png)
 
+## Mezo Buildathon submission
+
+| Requirement / criterion | How Bustline meets it |
+|---|---|
+| Track | **DeFi** — leveraged trading with MUSD margin, MUSD yield for stakers |
+| Integrates MUSD | Margin, house cash, payout queue and staker revenue are all MUSD (real testnet MUSD from a Trove) |
+| Working deployment | Contracts live on **Mezo testnet**, keeper running, frontend at https://bustline-c8p.pages.dev |
+| Mezo-native stack | Mezo Passport for wallets, Mezo Pyth for prices, Skip Connect (Mezo's oracle) as a ±1% guard rail |
+| Evidence it works | A real 100x liquidation on testnet driven by the live price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 33 Foundry + 23 keeper tests |
+
+## Try it in 3 minutes
+
+1. **Look without a wallet.** Open https://bustline-c8p.pages.dev — the live BTC price, oracle age, house cash, payout
+   queue and open interest are read straight from the testnet contracts.
+2. **Get testnet funds.** Testnet BTC for gas from https://faucet.test.mezo.org, and MUSD by borrowing against BTC on
+   https://testnet.mezo.org (Mezo requires a 1,800 MUSD minimum debt).
+3. **Connect** with Mezo Passport (Unisat / OKX / Xverse or an EVM wallet) on Mezo testnet.
+4. **Trade.** Pick Long or Short, margin ≥ 10 MUSD, leverage up to 100x. The bust (liquidation) price is drawn on the
+   chart before you submit. Click *Request long open* (or short) — this approves MUSD and escrows the margin.
+5. **Watch the 2-step fill.** The keeper polls every 3 s and fills your order at the next signed price published *after*
+   your request. The position appears under *Positions* with its bust line.
+6. **Close or get busted.** Closing in profit pays you from the house (or queues you FIFO if the house is short); a loss
+   or a bust mints non-transferable **MPAPER**.
+7. **Stake MPAPER** in the *MPAPER* tab to earn a share of MUSD fees; the *House* tab shows the queue and every position.
+
+No testnet MUSD? `./scripts/demo.sh` runs the whole lifecycle — empty house, queued winner, −6% crash, liquidations
+repaying the queue, MPAPER staking — on a local fork ([recorded output](docs/demo/crash-demo-output.txt)).
+
+## Deployed contracts (Mezo testnet, chainId 31611)
+
+| Contract | Address |
+|---|---|
+| HouseExchange | [`0x5e941EEA56DEE50924950E86f24624Be37f02050`](https://explorer.test.mezo.org/address/0x5e941EEA56DEE50924950E86f24624Be37f02050) |
+| SignedPriceOracle (active) | [`0x83401Fc1B16DbCa09531241Dad49700248C8c72c`](https://explorer.test.mezo.org/address/0x83401Fc1B16DbCa09531241Dad49700248C8c72c) |
+| PythPullOracle (switch-ready) | [`0xA1E556D9e659fC879D3c37Bd2490D3274B6c20bB`](https://explorer.test.mezo.org/address/0xA1E556D9e659fC879D3c37Bd2490D3274B6c20bB) |
+| RebateToken — Mezo Paper (`MPAPER`) | [`0x07F9bd344916571321f494aE00eDD30ac1dE89Bd`](https://explorer.test.mezo.org/address/0x07F9bd344916571321f494aE00eDD30ac1dE89Bd) |
+| RebateStaking | [`0x8c76076af61489D8fdc10F6DbA7a9aeC52879fD8`](https://explorer.test.mezo.org/address/0x8c76076af61489D8fdc10F6DbA7a9aeC52879fD8) |
+| MUSD (Mezo) | [`0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`](https://explorer.test.mezo.org/address/0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503) |
+
+Deploy txs, the live-liquidation tx and the earlier v1 markets: [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md).
+
+## What's live vs mocked
+
+| Component | Status |
+|---|---|
+| Exchange, house, payout queue, MPAPER, staking | **Live** on Mezo testnet with real MUSD |
+| Price feed | **Live — keeper-signed** median of Coinbase / Kraken / Bitstamp, enforced on-chain to stay within ±1% of Skip Connect |
+| Pyth pull oracle | **Deployed, not active.** Verified against Mezo testnet Pyth with a real mainnet-signed update; activating needs a Pyth Hermes API key + one `setOracle` tx |
+| Keeper | **Live**, single permissioned operator run by the team (fills, liquidations, queue harvest) |
+| Crash-demo market (`deployments/testnet-demo.json`) | **Mocked price** — a separate, labelled market with a `MockOracle` so crashes can be shown on demand |
+| Local fork (`dev-fork.sh`, `demo.sh`) | Real MUSD bytecode, **mocked price** (anvil can't run Mezo's Skip precompile) |
+| Chart on the trade screen | Display only — Coinbase public candles; settlement uses the on-chain price |
+
 ## What it is
 
 Bustline is a single-market **BTC/USD synthetic perpetual**. There are no LP deposits: the counterparty is a **house that
@@ -125,6 +178,13 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 - Anvil can't execute Mezo's Skip precompile, so local/fork runs use `MockOracle`; MUSD is the real bytecode.
 - Impact-haircut and mint-curve parameters start from published defaults of the reference designs below and are not
   yet tuned for Mezo.
+
+## Wave log
+
+| Wave | Dates | Shipped |
+|---|---|---|
+| Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
+| Wave 2 | Nov 2–15, 2026 | _Planned — updated at submission_ |
 
 ## Credits
 
