@@ -38,7 +38,7 @@ frontend/public/deployment.testnet.json
 # testnet key (never commit)
 .secrets/
 
-# 公開リポジトリに入れないもの（台本・提出資料は ../21_mezo-paperperp-campaign で管理）
+# non-code materials and local screenshots stay out of this repo
 campaign/
 private/
 submission/

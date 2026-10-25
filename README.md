@@ -148,7 +148,7 @@ oracle's own staleness check still applies.
 Requires [Foundry](https://book.getfoundry.sh/), Python 3 and Node 18+.
 
 ```bash
-git clone --recurse-submodules https://github.com/naoto13/mezo-paperperp.git && cd mezo-paperperp
+git clone --recurse-submodules https://github.com/naoto13/Bustline.git && cd Bustline
 
 forge test                                                  # unit + fuzz (fork suites auto-skip)
 MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   # against real Mezo testnet state (read-only)

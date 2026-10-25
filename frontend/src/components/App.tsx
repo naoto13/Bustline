@@ -251,7 +251,7 @@ function Dashboard() {
             {t === "trade" ? "Trade" : t === "house" ? "House" : "MPAPER"}
           </a>
         ))}
-        <a href="https://github.com/naoto13/mezo-paperperp" target="_blank" rel="noreferrer" className="muted">Docs</a>
+        <a href="https://github.com/naoto13/Bustline" target="_blank" rel="noreferrer" className="muted">Docs</a>
       </nav>
       <div className="navr">
         <span className="chip tag-testnet">TESTNET · UNAUDITED</span>
