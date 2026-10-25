@@ -1,0 +1,20 @@
+name = "bustline-keeper"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "KEEPER_STATE"
+id = "775a3796c17a4990b665ac9c76aaa4bf"
+
+[vars]
+RPC_URL = "https://rpc.test.mezo.org"
+TICK_SECONDS = "15"
+RUN_SECONDS = "46"
+HEARTBEAT_SECONDS = "300"
+
+[observability]
+enabled = true
