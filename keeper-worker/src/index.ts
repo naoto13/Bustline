@@ -27,7 +27,7 @@ const MAX_SPREAD_BPS = 50;
 const MIN_SOURCES = 2;
 const PUBLISH_SKEW_MARGIN = 5; // < SignedPriceOracle.maxSkew (10 s)
 const SUBREQUEST_BUDGET = 44; // Workers Free: 50 subrequests / invocation; keep headroom for the KV write
-const UA = { "User-Agent": "mezo-perp-keeper/0.2" };
+const UA = { "User-Agent": "bustline-keeper/0.2" };
 
 // keeper/abi/HouseExchange.selectors.json
 const SEL = {

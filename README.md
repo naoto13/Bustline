@@ -29,7 +29,7 @@
 3. **Connect** with Mezo Passport (Unisat / OKX / Xverse or an EVM wallet) on Mezo testnet.
 4. **Trade.** Pick Long or Short, margin ≥ 10 MUSD, leverage up to 100x. The bust (liquidation) price is drawn on the
    chart before you submit. Click *Request long open* (or short) — this approves MUSD and escrows the margin.
-5. **Watch the 2-step fill.** The keeper polls every 3 s and fills your order at the next signed price published *after*
+5. **Watch the 2-step fill.** The keeper ticks every 15 s and fills your order at the next signed price published *after*
    your request. The position appears under *Positions* with its bust line.
 6. **Close or get busted.** Closing in profit pays you from the house (or queues you FIFO if the house is short); a loss
    or a bust mints non-transferable **MPAPER**.
@@ -58,7 +58,7 @@ Deploy txs, the live-liquidation tx and the earlier v1 markets: [`docs/DEPLOYMEN
 | Exchange, house, payout queue, MPAPER, staking | **Live** on Mezo testnet with real MUSD |
 | Price feed | **Live — keeper-signed** median of Coinbase / Kraken / Bitstamp, enforced on-chain to stay within ±1% of Skip Connect |
 | Pyth pull oracle | **Deployed, not active.** Verified against Mezo testnet Pyth with a real mainnet-signed update; activating needs a Pyth Hermes API key + one `setOracle` tx |
-| Keeper | **Live**, single permissioned operator run by the team (fills, liquidations, queue harvest) |
+| Keeper | **Live** as a Cloudflare Worker (cron every minute, 15 s ticks; [health](https://bustline-keeper.m9m1c3.workers.dev/health)). Single permissioned operator run by the team (fills, liquidations, price pushes, queue harvest); the Python keeper is the fallback |
 | Crash-demo market (`deployments/testnet-demo.json`) | **Mocked price** — a separate, labelled market with a `MockOracle` so crashes can be shown on demand |
 | Local fork (`dev-fork.sh`, `demo.sh`) | Real MUSD bytecode, **mocked price** (anvil can't run Mezo's Skip precompile) |
 | Chart on the trade screen | Display only — Coinbase public candles; settlement uses the on-chain price |
@@ -138,7 +138,8 @@ oracle's own staleness check still applies.
 | `test/` | Unit + fuzz (`HouseExchange.t.sol`, `Oracles.t.sol`); fork suites against real testnet MUSD and real Mezo Pyth with a mainnet-signed update (`test/fork/`) |
 | `script/` | `DeployLocal` (anvil), `DeployTestnet` (`ORACLE_MODE=signed\|pyth`), `DeployTestnetDemo` (mock-oracle crash-demo market) |
 | `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh`, `list-events.py` |
-| `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts) + testnet operator CLI |
+| `keeper-worker/` | Live keeper on Cloudflare Workers (TypeScript + viem port of the Python keeper, `/health` endpoint) |
+| `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts; fallback) + testnet operator CLI |
 | `frontend/` | Next.js 14 + Mezo Passport: trade screen with bust lines, positions, house & payout queue, MPAPER staking |
 | `docs/` | [`DEPLOYMENTS.md`](docs/DEPLOYMENTS.md) (addresses + on-chain events), [`OPERATIONS.md`](docs/OPERATIONS.md) (deploy & run), `demo/` (recorded outputs) |
 
@@ -183,7 +184,7 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 
 | Wave | Dates | Shipped |
 |---|---|---|
-| Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
+| Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper and its Cloudflare Worker port, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
 | Wave 2 | Nov 2–15, 2026 | _Planned — updated at submission_ |
 
 ## Credits
