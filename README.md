@@ -24,8 +24,8 @@
 
 1. **Look without a wallet.** Open https://bustline-c8p.pages.dev — the live BTC price, oracle age, house cash, payout
    queue and open interest are read straight from the testnet contracts.
-2. **Get testnet funds.** Testnet BTC for gas from https://faucet.test.mezo.org, and MUSD by borrowing against BTC on
-   https://testnet.mezo.org (Mezo requires a 1,800 MUSD minimum debt).
+2. **Get testnet funds.** Test BTC from https://faucet.test.mezo.org, then swap BTC → MUSD (or borrow MUSD against BTC)
+   in the Mezo testnet dApp at https://testnet.mezo.org.
 3. **Connect** with Mezo Passport (Unisat / OKX / Xverse or an EVM wallet) on Mezo testnet.
 4. **Trade.** Pick Long or Short, margin ≥ 10 MUSD, leverage up to 100x. The bust (liquidation) price is drawn on the
    chart before you submit. Click *Request long open* (or short) — this approves MUSD and escrows the margin.
