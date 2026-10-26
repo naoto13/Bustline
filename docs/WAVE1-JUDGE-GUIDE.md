@@ -5,7 +5,7 @@ Mezo testnet only (chain ID 31611). Unaudited. Test assets have no promised valu
 
 - [Open the app](https://bustline-c8p.pages.dev)
 - [Six-page pitch deck](wave1/bustline-wave1-deck.pdf)
-- [1:59 pitch video](https://youtu.be/CWIY4ftYORI)
+- [2-minute pitch video](https://youtu.be/CWIY4ftYORI)
 - [Contracts and deployment evidence](DEPLOYMENTS.md)
 
 ## What is different

@@ -6,7 +6,7 @@
 
 - **Live app:** https://bustline-c8p.pages.dev (Mezo testnet, connect with Mezo Passport)
 - **Contracts & on-chain proof:** [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md)
-- **ピッチ動画（1分59秒）:** https://youtu.be/CWIY4ftYORI
+- **ピッチ動画（2分）:** https://youtu.be/CWIY4ftYORI
 - **Wave 1 審査資料:** [試し方・実装範囲・証跡](docs/WAVE1-JUDGE-GUIDE.md) / [PDFデッキ](docs/wave1/bustline-wave1-deck.pdf)
 
 ![Bustline trade screen on Mezo testnet](docs/demo/frontend-testnet.png)
