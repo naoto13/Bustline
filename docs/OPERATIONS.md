@@ -80,8 +80,9 @@ Workers Free limits:
   the next cron minute picks up the rest.
 - **CPU 10 ms per invocation.** Network waits don't count; secp256k1 signing is the main cost. Watch `cpuTime` in
   Workers Observability; if runs get killed for CPU, move to Workers Paid.
-- **KV 1,000 writes/day.** The `/health` run summary is written on even minutes (or whenever a fill, liquidation,
-  harvest or error happened), so it can be up to ~2 min old; the `live` block is always fresh.
+- **KV 1,000 writes/day.** State and the `/health` run summary share one key, written every 10 minutes or whenever
+  the order cursor moved or a fill, liquidation, harvest or error happened (~144 writes/day baseline), so the summary
+  can be up to ~10 min old; the `live` block is always fresh.
 - Cron trigger changes can take a few minutes to start firing after the first deploy.
 
 ### Python keeper (fallback)

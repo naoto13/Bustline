@@ -391,11 +391,11 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   };
   console.log(`[keeper] run done ${JSON.stringify({ ticks: ticks.length, subrequests: rpc.count, txs: ex.txs })}`);
   if (env.KEEPER_STATE) {
-    // Workers KV free tier = 1000 writes/day: write on even minutes, or whenever something other than a push happened.
+    // Workers KV free tier = 1000 writes/day. One key per write; write only when the cursor moved, something other than
+    // a push happened, or every 10 minutes so /health stays reasonably fresh (~144 writes/day baseline).
     const eventful = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.errors.length);
-    if (eventful || new Date(scheduledTime || start).getUTCMinutes() % 2 === 0) {
-      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush }));
-      await env.KEEPER_STATE.put("last", JSON.stringify(summary));
+    if (eventful || st.cursor !== (prev?.cursor ?? 0) || new Date(scheduledTime || start).getUTCMinutes() % 10 === 0) {
+      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, last: summary }));
     }
   }
   return summary;
@@ -418,7 +418,7 @@ async function health(env: Env): Promise<Response> {
     live.order_count = s.orderCount;
     live.pending_orders = s.pending.map(String);
   } catch (e) { live.error = String(e).slice(0, 200); }
-  const last = env.KEEPER_STATE ? await env.KEEPER_STATE.get("last", "json") : null;
+  const last = env.KEEPER_STATE ? ((await env.KEEPER_STATE.get("state", "json")) as any)?.last ?? null : null;
   return Response.json({ worker: "bustline-keeper", network: "mezo-testnet", live, last_run: last }, { headers: { "Cache-Control": "no-store" } });
 }
 
