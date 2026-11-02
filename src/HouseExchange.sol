@@ -7,6 +7,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IPriceOracle } from "./interfaces/IPriceOracle.sol";
+import { IMezoStabilityPool, IMezoPriceFeed, IMezoSortedTroves, IMezoTroveManager } from "./interfaces/IMezo.sol";
 import { ImpactLib } from "./libraries/ImpactLib.sol";
 import { RebateToken } from "./RebateToken.sol";
 import { RebateStaking } from "./RebateStaking.sol";
@@ -18,6 +19,8 @@ import { RebateStaking } from "./RebateStaking.sol";
 ///         for MUSD revenue share. No funding, no spread; winning closes pay an asymmetric impact haircut + win fee.
 ///         Orders are 2-step: a request escrows margin, and a keeper fills it at an oracle update strictly AFTER the
 ///         request (blocks "see the price, then trade at the stale oracle" attacks, cf. Mezo's Velar post-mortem).
+///         v3: idle house MUSD (`houseCash` only — never margin/escrow) can be deposited into MUSD's Stability Pool
+///         (`rebalance`); winners are topped up from it; its BTC collateral gains go to stakers (`forwardBtc`).
 /// @dev TESTNET DEMO / UNAUDITED. Independent implementation; mechanism inspired by public docs (see README).
 contract HouseExchange is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -91,6 +94,22 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     mapping(address => bool) public isKeeper;
 
+    // ---- Mezo Stability Pool (v3) ----
+    uint256 internal constant MCR = 1.1e18; // MUSD LiquityBase.MCR
+    /// @dev Gas stipend for StabilityPool.withdrawFromSP (PriceFeed + ICR check + snapshots + MUSD/BTC transfers).
+    uint256 public constant SP_WITHDRAW_GAS = 1_000_000;
+    /// @dev Gas stipend for each external view used in decisions (PriceFeed / SortedTroves / TroveManager / deposit).
+    uint256 internal constant SP_VIEW_GAS = 300_000;
+    IMezoStabilityPool public stabilityPool;
+    IMezoPriceFeed public spPriceFeed;
+    IMezoSortedTroves public spSortedTroves;
+    IMezoTroveManager public spTroveManager;
+    bool public spEnabled;
+    uint256 public spMinLiquid = 50e18; // house MUSD kept on hand
+    uint256 public spMaxShareBps = 5_000; // SP deposit <= this share of (houseCash + SP deposit)
+    uint256 public spBandBps = 2_000; // hysteresis around spMinLiquid
+    uint256 public totalBtcToStakers;
+
     // ---- state ----
     uint256 public houseCash; // free house MUSD (reserved for the queue first)
     uint256 public totalMargin; // margin locked in open positions
@@ -155,6 +174,11 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     event StakerRevenue(uint256 amount);
     event KeeperSet(address keeper, bool allowed);
     event ParamsUpdated();
+    event StabilityPoolSet(address stabilityPool, address priceFeed, address sortedTroves, address troveManager);
+    event SpDeposited(uint256 amount);
+    event SpWithdrawn(uint256 requested, uint256 received);
+    event SpWithdrawBlocked(uint256 requested);
+    event BtcForwarded(uint256 amount);
 
     error NotKeeper();
     error BadLeverage();
@@ -168,6 +192,10 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     error NotLiquidatable();
     error UnexpectedValue();
     error NotExpired();
+    error NotStabilityPool();
+    error SpDepositOutstanding();
+    error InsufficientGasForSp();
+    error SpDepositMismatch();
 
     modifier onlyKeeper() {
         if (!isKeeper[msg.sender] && msg.sender != owner()) revert NotKeeper();
@@ -232,6 +260,29 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     function setMintCurve(uint256 flat, uint256 threshold, uint256 decayScale) external onlyOwner {
         (mintFlatRate, mintThreshold, mintDecayScale) = (flat, threshold, decayScale);
+        emit ParamsUpdated();
+    }
+
+    /// @notice Wire the MUSD Stability Pool and the contracts used for the "withdrawals blocked?" check.
+    ///         Refused while this contract still has a deposit in the current pool.
+    function setStabilityPool(address sp, address priceFeed_, address sortedTroves_, address troveManager_)
+        external
+        onlyOwner
+    {
+        if (spDeposit() != 0) revert SpDepositOutstanding();
+        if (address(stabilityPool) != address(0) && stabilityPool.getDepositorCollateralGain(address(this)) != 0) {
+            revert SpDepositOutstanding(); // call forwardBtc() first, or the old pool's BTC could not be received
+        }
+        stabilityPool = IMezoStabilityPool(sp);
+        spPriceFeed = IMezoPriceFeed(priceFeed_);
+        spSortedTroves = IMezoSortedTroves(sortedTroves_);
+        spTroveManager = IMezoTroveManager(troveManager_);
+        emit StabilityPoolSet(sp, priceFeed_, sortedTroves_, troveManager_);
+    }
+
+    function setSpParams(bool enabled, uint256 minLiquid, uint256 maxShareBps, uint256 bandBps) external onlyOwner {
+        require(maxShareBps <= BPS && bandBps < BPS, "sp");
+        (spEnabled, spMinLiquid, spMaxShareBps, spBandBps) = (enabled, minLiquid, maxShareBps, bandBps);
         emit ParamsUpdated();
     }
 
@@ -427,6 +478,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     function _payWinner(address to, uint256 payout, uint256 fee) internal returns (uint256 paidNow, uint256 queued) {
         if (_queueEmpty()) {
+            if (houseCash < payout) _spPull(payout - houseCash); // best effort: blocked withdrawals → queue
             paidNow = Math.min(payout, houseCash);
             houseCash -= paidNow;
             if (paidNow > 0) musd.safeTransfer(to, paidNow);
@@ -487,7 +539,9 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     }
 
     /// @notice Pay queued winners FIFO from house cash (anyone can call).
+    ///         v3: if cash is short of the queue, first tries to top up from the Stability Pool (best effort).
     function harvest(uint256 maxEntries) external nonReentrant returns (uint256 paid) {
+        if (!_queueEmpty() && houseCash < queueTotal) _spPull(queueTotal - houseCash);
         return _harvest(maxEntries);
     }
 
@@ -553,20 +607,162 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit StakerRevenue(amount);
     }
 
-    /// @notice Sweep house cash above `houseCap` to stakers (only when no winner is queued).
+    /// @notice Sweep house assets (cash + SP deposit) above `houseCap` to stakers (only when no winner is queued).
+    ///         Only on-hand `houseCash` is sent; the SP deposit is never withdrawn for this.
     function sweepExcess() external nonReentrant returns (uint256 amount) {
-        if (!_queueEmpty() || houseCash <= houseCap) return 0;
+        if (!_queueEmpty()) return 0;
+        uint256 assets = houseCash + spDeposit();
+        if (assets <= houseCap) return 0;
         if (!_stakersActive()) return 0;
-        amount = houseCash - houseCap;
-        houseCash = houseCap;
+        amount = Math.min(assets - houseCap, houseCash);
+        houseCash -= amount;
         _toStakers(amount);
+    }
+
+    // ===================================================================== Stability Pool (v3)
+
+    /// @notice Only the Stability Pool may send BTC (its collateral gains). No state change, no reentrancy guard:
+    ///         the BTC arrives in the middle of our own nonReentrant calls (provideToSP / withdrawFromSP).
+    receive() external payable {
+        if (msg.sender != address(stabilityPool)) revert NotStabilityPool();
+    }
+
+    /// @notice This contract's actual MUSD in the Stability Pool (after liquidation losses). 0 if unset/unreadable.
+    function spDeposit() public view returns (uint256) {
+        if (address(stabilityPool) == address(0)) return 0;
+        // guard: an under-gassed caller must not be able to make the deposit read as 0 (it feeds houseEquity/mint)
+        if (gasleft() < (SP_VIEW_GAS * 64) / 63 + 5_000) revert InsufficientGasForSp();
+        try stabilityPool.getCompoundedMUSDDeposit{ gas: SP_VIEW_GAS }(address(this)) returns (uint256 d) {
+            return d;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @notice True if `withdrawFromSP(amount > 0)` would currently pass MUSD's gate: PriceFeed answers and the lowest
+    ///         trove's ICR >= MCR. Any failure reads as "blocked".
+    function spWithdrawable() public view returns (bool) {
+        if (address(spPriceFeed) == address(0)) return false;
+        uint256 price;
+        address last;
+        try spPriceFeed.fetchPrice{ gas: SP_VIEW_GAS }() returns (uint256 p) {
+            price = p;
+        } catch {
+            return false;
+        }
+        try spSortedTroves.getLast{ gas: SP_VIEW_GAS }() returns (address l) {
+            last = l;
+        } catch {
+            return false;
+        }
+        if (last == address(0)) return true;
+        try spTroveManager.getCurrentICR{ gas: SP_VIEW_GAS }(last, price) returns (uint256 icr) {
+            return icr >= MCR;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice What `rebalance()` would do now: action 0 = nothing, 1 = deposit `amount`, 2 = withdraw `amount`.
+    ///         Bands: deposit when cash > min*(1+band), down to `spMinLiquid` (capped so the SP deposit stays <=
+    ///         `spMaxShareBps` of cash+deposit); withdraw when cash < min*(1-band) or a winner is queued, up to
+    ///         `spMinLiquid + queueTotal`. Disabled → withdraw everything. Deposits need an empty queue and an
+    ///         unblocked SP (so the house never deposits into a pool it cannot leave).
+    function rebalanceAction() public view returns (uint8 action, uint256 amount) {
+        if (address(stabilityPool) == address(0)) return (0, 0);
+        uint256 dep = spDeposit();
+        if (!spEnabled) return dep > 0 ? (2, dep) : (0, 0);
+        uint256 cash = houseCash;
+        uint256 target = spMinLiquid + queueTotal;
+        if (dep > 0 && (cash < (spMinLiquid * (BPS - spBandBps)) / BPS || (queueTotal > 0 && cash < target))) {
+            return (2, Math.min(target - cash, dep));
+        }
+        if (_queueEmpty() && cash > (spMinLiquid * (BPS + spBandBps)) / BPS) {
+            uint256 cap = ((cash + dep) * spMaxShareBps) / BPS;
+            uint256 amt = Math.min(cash - spMinLiquid, cap > dep ? cap - dep : 0);
+            if (amt > 0 && spWithdrawable()) return (1, amt);
+        }
+        return (0, 0);
+    }
+
+    /// @notice Move idle house MUSD into / out of the Stability Pool (anyone; the keeper calls it periodically).
+    ///         A blocked withdrawal emits SpWithdrawBlocked and returns normally.
+    function rebalance() external nonReentrant returns (uint8 action, uint256 amount) {
+        (action, amount) = rebalanceAction();
+        if (action == 1) {
+            houseCash -= amount;
+            uint256 b0 = musd.balanceOf(address(this));
+            musd.forceApprove(address(stabilityPool), amount);
+            stabilityPool.provideToSP(amount); // also sends pending BTC gains → receive()
+            if (b0 - musd.balanceOf(address(this)) != amount) revert SpDepositMismatch();
+            emit SpDeposited(amount);
+        } else if (action == 2) {
+            amount = _spWithdraw(amount);
+            _harvest(16);
+        }
+    }
+
+    /// @notice Collect the SP's BTC gains and forward all BTC held to stakers (anyone). Keeps it if nobody stakes.
+    function forwardBtc() external nonReentrant returns (uint256 amount) {
+        if (address(stabilityPool) != address(0)) {
+            _spGuardGas();
+            uint256 b0 = musd.balanceOf(address(this));
+            // withdrawFromSP(0) is not gated by the ICR check; it reverts only without a deposit (then: skip)
+            try stabilityPool.withdrawFromSP{ gas: SP_WITHDRAW_GAS }(0) {
+                houseCash += musd.balanceOf(address(this)) - b0; // normally 0
+            } catch { }
+        }
+        amount = address(this).balance;
+        if (amount == 0 || !_stakersActive()) return 0;
+        staking.notifyRewardBtc{ value: amount }();
+        totalBtcToStakers += amount;
+        emit BtcForwarded(amount);
+    }
+
+    /// @notice BTC the stakers would get from `forwardBtc()` now (0 if nobody stakes).
+    function forwardableBtc() external view returns (uint256) {
+        if (!_stakersActive()) return 0;
+        uint256 gain;
+        if (address(stabilityPool) != address(0)) {
+            try stabilityPool.getDepositorCollateralGain{ gas: SP_VIEW_GAS }(address(this)) returns (uint256 g) {
+                gain = g;
+            } catch { }
+        }
+        return address(this).balance + gain;
+    }
+
+    /// @dev Best-effort top-up of `want` MUSD from the SP. Never reverts on SP failure.
+    function _spPull(uint256 want) internal returns (uint256 got) {
+        if (address(stabilityPool) == address(0) || want == 0) return 0;
+        uint256 dep = spDeposit();
+        if (dep == 0) return 0;
+        return _spWithdraw(Math.min(want, dep));
+    }
+
+    /// @dev withdrawFromSP with the received MUSD measured by balance delta. On revert: event, no state change.
+    function _spWithdraw(uint256 amount) internal returns (uint256 got) {
+        _spGuardGas();
+        uint256 b0 = musd.balanceOf(address(this));
+        try stabilityPool.withdrawFromSP{ gas: SP_WITHDRAW_GAS }(amount) {
+            got = musd.balanceOf(address(this)) - b0;
+            houseCash += got;
+            emit SpWithdrawn(amount, got);
+        } catch {
+            emit SpWithdrawBlocked(amount);
+        }
+    }
+
+    /// @dev The SP call must really get its stipend; otherwise a caller could choose a gas limit that makes only the
+    ///      inner call fail (→ catch) and e.g. push a winner into the queue. Not enough gas → revert the whole tx.
+    function _spGuardGas() internal view {
+        if (gasleft() < (SP_WITHDRAW_GAS * 64) / 63 + 50_000) revert InsufficientGasForSp();
     }
 
     // ===================================================================== views
 
-    /// @notice House cash minus queued claims. Negative = temporary insolvency (by design).
+    /// @notice House cash + Stability Pool deposit minus queued claims. Negative = temporary insolvency (by design).
     function houseEquity() public view returns (int256) {
-        return int256(houseCash) - int256(queueTotal);
+        return int256(houseCash + spDeposit()) - int256(queueTotal);
     }
 
     function getOrder(uint256 id) external view returns (Order memory) {

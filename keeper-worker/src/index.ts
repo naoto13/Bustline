@@ -10,17 +10,40 @@ import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 
 export interface Env {
   KEEPER_PRIVATE_KEY: string;
+  /** v3 splits the keys: price reports are signed by SignedPriceOracle.signer, txs are sent by the keeper.
+   *  Secret, optional: unset = sign with KEEPER_PRIVATE_KEY (v2, where both are the same EOA). */
+  PRICE_SIGNER_PRIVATE_KEY?: string;
   KEEPER_STATE?: KVNamespace;
   RPC_URL?: string;
   TICK_SECONDS?: string;
   RUN_SECONDS?: string;
   HEARTBEAT_SECONDS?: string;
+  /** HouseExchange address (wrangler.toml [vars]). Default = v2 (deployments/testnet.json). */
+  EXCHANGE_ADDRESS?: string;
+  /** SignedPriceOracle address — part of the signed-report digest, so it must match the exchange's oracle. */
+  ORACLE_ADDRESS?: string;
+  /** "1" = HouseExchange v3: also call rebalance() / forwardBtc() (v2 has neither: leave unset for v2). */
+  SP_OPS?: string;
+  /** Minimum seconds between Stability Pool checks (default = HEARTBEAT_SECONDS). */
+  SP_INTERVAL_SECONDS?: string;
 }
 
 const TESTNET_HOST = "rpc.test.mezo.org";
 const CHAIN_ID = 31611;
-const EXCHANGE = "0x5e941EEA56DEE50924950E86f24624Be37f02050" as const; // deployments/testnet.json HouseExchange
-const ORACLE = "0x83401Fc1B16DbCa09531241Dad49700248C8c72c" as const; // SignedPriceOracle
+const DEFAULT_EXCHANGE = "0x5e941EEA56DEE50924950E86f24624Be37f02050"; // v2, deployments/testnet.json HouseExchange
+const DEFAULT_ORACLE = "0x83401Fc1B16DbCa09531241Dad49700248C8c72c"; // v2 SignedPriceOracle
+// Set from env at the start of every invocation (configure). env is fixed per deployment, so module scope is safe.
+let EXCHANGE: Hex = DEFAULT_EXCHANGE;
+let ORACLE: Hex = DEFAULT_ORACLE;
+function addr(v: string | undefined, fallback: string, name: string): Hex {
+  const a = (v ?? "").trim() || fallback;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error(`${name} is not an address: '${a}'`);
+  return a as Hex;
+}
+function configure(env: Env): void {
+  EXCHANGE = addr(env.EXCHANGE_ADDRESS, DEFAULT_EXCHANGE, "EXCHANGE_ADDRESS");
+  ORACLE = addr(env.ORACLE_ADDRESS, DEFAULT_ORACLE, "ORACLE_ADDRESS");
+}
 const HARVEST_BATCH = 32n;
 const SCAN_WINDOW = 500;
 const MAX_SPREAD_BPS = 50;
@@ -46,6 +69,13 @@ const SEL = {
   liquidate: "0xf6614170",
   pushPrice: "0x066f2eb6",
   harvest: "0xddc63262",
+  // v3 (Stability Pool)
+  rebalance: "0x7d7c2a1c",
+  rebalanceAction: "0xe249f67d",
+  forwardBtc: "0x9eca6d72",
+  forwardableBtc: "0x52594520",
+  spDeposit: "0xfaefef87",
+  spWithdrawable: "0xaf5deacf",
 } as const;
 
 class RpcError extends Error {}
@@ -256,17 +286,24 @@ class Executor {
   liquidate = (pid: bigint, u: Hex[], fee: bigint) => this.send(`liquidate#${pid}`, cdLiquidate(pid, u), fee);
   push = (u: Hex[], fee: bigint) => this.send("push", cdPush(u), fee);
   harvest = (n: bigint) => this.send("harvest", cdHarvest(n));
+  rebalance = () => this.send("rebalance", SEL.rebalance as Hex);
+  forwardBtc = () => this.send("forwardBtc", SEL.forwardBtc as Hex);
 }
 
 // ------------------------------------------------------------------ one tick (monitor.Keeper.poll_once)
-interface RunState { cursor: number; lastPush: number; pushedThisRun: boolean; heartbeat: number }
+interface RunState {
+  cursor: number; lastPush: number; pushedThisRun: boolean; heartbeat: number;
+  spOps: boolean; spInterval: number; lastSp: number;
+}
 interface TickOut {
   at: string; filled: string[]; waiting: string[]; liquidated: string[]; harvested: boolean; at_risk: string[];
+  sp?: string[];
   pushed: boolean; source: string | null; price: string | null; errors: string[]; snapshot?: Record<string, unknown>;
 }
 const fmt = (w: bigint | null) => (w === null ? null : (Number(w) / 1e18).toFixed(2));
 
-async function tick(rpc: Rpc, ex: Executor, acct: PrivateKeyAccount, st: RunState): Promise<TickOut> {
+/** `signer` signs price reports (SignedPriceOracle.signer); transactions are sent by `ex` (the keeper account). */
+async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunState): Promise<TickOut> {
   const now = Date.now() / 1000;
   const out: TickOut = { at: new Date().toISOString(), filled: [], waiting: [], liquidated: [], harvested: false, at_risk: [], pushed: false, source: null, price: null, errors: [] };
   const s = await snapshot(rpc, st.cursor);
@@ -281,7 +318,7 @@ async function tick(rpc: Rpc, ex: Executor, acct: PrivateKeyAccount, st: RunStat
 
   let bundle: PriceBundle | null = null;
   if (pending.length || s.openIds.length || hbDue) {
-    try { bundle = await fetchBundle(rpc, acct, s.blockTs); out.source = bundle.source; }
+    try { bundle = await fetchBundle(rpc, signer, s.blockTs); out.source = bundle.source; }
     catch (e) { out.errors.push(`price source unavailable — using on-chain price: ${String(e).slice(0, 200)}`); }
   }
   let price: bigint, ts: number;
@@ -344,13 +381,39 @@ async function tick(rpc: Rpc, ex: Executor, acct: PrivateKeyAccount, st: RunStat
     }
   }
 
-  // 3) queue harvest (catches leftovers)
+  // 3) queue harvest (catches leftovers). v3: harvest also tops up from the Stability Pool, so a deposit counts.
   if (rpc.count < SUBREQUEST_BUDGET) {
-    const [q, c] = await rpc.batch([ethCall(SEL.queueTotal), ethCall(SEL.houseCash)]);
+    // a deposit only helps while SP withdrawals are open; otherwise harvest would pay 0 every tick
+    const calls = [ethCall(SEL.queueTotal), ethCall(SEL.houseCash)];
+    if (st.spOps) calls.push(ethCall(SEL.spDeposit), ethCall(SEL.spWithdrawable));
+    const [q, c, d, w] = await rpc.batch(calls);
     const queued = words(ok(q))[0], cash = words(ok(c))[0];
-    if (queued > 0n && cash > 0n) {
+    const spOpen = !!w && !w.error && words(w.result)[0] !== 0n;
+    const dep = spOpen && d && !d.error ? words(d.result)[0] : 0n;
+    if (queued > 0n && (cash > 0n || dep > 0n)) {
       try { await ex.harvest(HARVEST_BATCH); out.harvested = true; }
       catch (e) { out.errors.push(`harvest failed: ${String(e).slice(0, 200)}`); }
+    }
+  }
+
+  // 4) v3 Stability Pool upkeep: at most once per SP_INTERVAL_SECONDS (default: heartbeat), and a tx only when the
+  //    on-chain previews say there is work. Each tx costs ~3 + receipt polls subrequests, so keep a margin of 12.
+  if (st.spOps && now - st.lastSp >= st.spInterval && rpc.count < SUBREQUEST_BUDGET - 12) {
+    st.lastSp = now;
+    out.sp = [];
+    const [ra, fb, wd] = await rpc.batch([ethCall(SEL.rebalanceAction), ethCall(SEL.forwardableBtc), ethCall(SEL.spWithdrawable)]);
+    let action = ra.error ? 0n : words(ra.result)[0];
+    // a withdrawal (2) while SP withdrawals are blocked would only emit SpWithdrawBlocked: skip the tx
+    if (action === 2n && (wd.error || words(wd.result)[0] === 0n)) action = 0n;
+    const btc = fb.error ? 0n : words(fb.result)[0];
+    if (ra.error || fb.error) out.errors.push(`sp preview failed: ${String(ra.error?.message ?? fb.error?.message).slice(0, 200)}`);
+    if (action !== 0n) {
+      try { await ex.rebalance(); out.sp.push(action === 1n ? "deposit" : "withdraw"); }
+      catch (e) { out.errors.push(`rebalance failed: ${String(e).slice(0, 200)}`); }
+    }
+    if (btc > 0n && rpc.count < SUBREQUEST_BUDGET - 8) {
+      try { await ex.forwardBtc(); out.sp.push(`forwardBtc ${btc}`); }
+      catch (e) { out.errors.push(`forwardBtc failed: ${String(e).slice(0, 200)}`); }
     }
   }
   return out;
@@ -363,14 +426,21 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   const tickMs = Number(env.TICK_SECONDS ?? 15) * 1000;
   const runMs = Number(env.RUN_SECONDS ?? 46) * 1000;
   const start = Date.now();
+  configure(env);
   // never start a tick after this; hard cap 55 s after the scheduled minute (next cron at +60 s). A late retry of an old
   // schedule therefore does nothing.
   const stopAt = Math.min(start + runMs, (scheduledTime || start) + 55_000);
   const rpc = new Rpc(env.RPC_URL ?? `https://${TESTNET_HOST}`);
   const acct = privateKeyToAccount(env.KEEPER_PRIVATE_KEY.trim() as Hex);
   const ex = new Executor(rpc, acct, stopAt + 10_000);
+  const signerKey = env.PRICE_SIGNER_PRIVATE_KEY?.trim();
+  const signer = signerKey ? privateKeyToAccount(signerKey as Hex) : acct;
   const prev = env.KEEPER_STATE ? ((await env.KEEPER_STATE.get("state", "json")) as any) : null;
-  const st: RunState = { cursor: prev?.cursor ?? 0, lastPush: prev?.lastPush ?? 0, pushedThisRun: false, heartbeat: Number(env.HEARTBEAT_SECONDS ?? 300) };
+  const heartbeat = Number(env.HEARTBEAT_SECONDS ?? 300);
+  const st: RunState = {
+    cursor: prev?.cursor ?? 0, lastPush: prev?.lastPush ?? 0, pushedThisRun: false, heartbeat,
+    spOps: env.SP_OPS === "1", spInterval: Number(env.SP_INTERVAL_SECONDS ?? heartbeat), lastSp: prev?.lastSp ?? 0,
+  };
   const ticks: TickOut[] = [];
   for (let i = 0; ; i++) {
     const slot = start + i * tickMs;
@@ -378,14 +448,14 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
     if (Date.now() < slot) await sleep(slot - Date.now());
     if (Date.now() >= stopAt || rpc.count >= SUBREQUEST_BUDGET - 6) break;
     let t: TickOut;
-    try { t = await tick(rpc, ex, acct, st); }
+    try { t = await tick(rpc, ex, signer, st); }
     catch (e) { t = { at: new Date().toISOString(), filled: [], waiting: [], liquidated: [], harvested: false, at_risk: [], pushed: false, source: null, price: null, errors: [`tick failed: ${String(e).slice(0, 240)}`] }; }
     ticks.push(t);
     const { snapshot: snap, ...rest } = t;
     console.log(`[keeper] tick ${i} ${JSON.stringify(snap ?? {})} | ${JSON.stringify(rest)}`);
   }
   const summary = {
-    keeper: acct.address, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
+    keeper: acct.address, price_signer: signer.address, exchange: EXCHANGE, oracle: ORACLE, sp_ops: st.spOps, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
     subrequests: rpc.count, cursor: st.cursor, last_push: st.lastPush ? new Date(st.lastPush * 1000).toISOString() : null,
     txs: ex.txs, ticks,
   };
@@ -393,20 +463,22 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   if (env.KEEPER_STATE) {
     // Workers KV free tier = 1000 writes/day. One key per write; write only when the cursor moved, something other than
     // a push happened, or every 10 minutes so /health stays reasonably fresh (~144 writes/day baseline).
-    const eventful = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.errors.length);
+    const eventful = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.errors.length || t.sp?.length);
     if (eventful || st.cursor !== (prev?.cursor ?? 0) || new Date(scheduledTime || start).getUTCMinutes() % 10 === 0) {
-      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, last: summary }));
+      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, lastSp: st.lastSp, last: summary }));
     }
   }
   return summary;
 }
 
 async function health(env: Env): Promise<Response> {
+  configure(env);
   const rpc = new Rpc(env.RPC_URL ?? `https://${TESTNET_HOST}`);
   const live: Record<string, unknown> = {};
   try {
     const s = await snapshot(rpc, 0);
     const t = s.price !== null ? s.priceUpdatedAt : s.lastTime;
+    live.exchange = EXCHANGE;
     live.chain_id = s.chainId;
     live.block_ts = s.blockTs;
     live.onchain_price = fmt(s.price ?? s.lastPrice);

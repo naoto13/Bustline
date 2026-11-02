@@ -50,6 +50,38 @@ full event list with:
 forge build && python3 scripts/list-events.py deployments/testnet.json 16277100
 ```
 
+## v3 (Wave 2) — deployment runbook (not yet executed)
+
+Nothing below has been run yet: **v3 is not deployed**, and the v2 market above is still the live one.
+`script/DeployTestnetV3.s.sol` has only passed a fork dry-run (no broadcast). It deploys a `TimelockController`
+(delay `TIMELOCK_DELAY`, default 3600 s; proposer + canceller = deployer; executor = anyone), both oracles bounded by the
+MUSD PriceFeed (±1%), HouseExchange v3 and RebateStaking v3, reuses the existing RebateToken (MPAPER), configures the
+Stability Pool with `spEnabled = false`, and then hands ownership to the timelock. It refuses to run unless the
+deployer, `KEEPER` and `PRICE_SIGNER` are three different addresses.
+
+1. Create new keys for the keeper and the price signer. In the Worker secrets, replace `KEEPER_PRIVATE_KEY` and add
+   `PRICE_SIGNER_PRIVATE_KEY`. Fund the keeper address with BTC for gas.
+2. Broadcast:
+
+   ```bash
+   CONFIRM_TESTNET_DEPLOY=1 MEZO_TESTNET_PRIVATE_KEY=<deployer> KEEPER=<addr> PRICE_SIGNER=<addr> \
+     [TIMELOCK_DELAY=3600 ORACLE_MODE=signed] \
+     forge script script/DeployTestnetV3.s.sol --rpc-url https://rpc.test.mezo.org --broadcast
+   ```
+
+   Record the timelock operation IDs, salts and calldata printed in the output.
+3. Close v2 position #2 and confirm v2 has no pending orders. After `setMinter(v3)`, v2 loss settlements and
+   liquidations revert with `NotMinter`.
+4. Confirm v2 `RebateStaking.totalStaked() == 0`. After `setStaking(v3)`, nobody can unstake from v2.
+5. Only now schedule operation A: one `scheduleBatch` with RebateToken `setMinter` and `setStaking`, delay 3600 s. The
+   executor is anyone, so do not schedule it before steps 3 and 4.
+6. After 1 hour, `executeBatch`. Until then v3 cannot settle losses.
+7. In `keeper-worker/wrangler.toml`, set `EXCHANGE_ADDRESS` and `ORACLE_ADDRESS` to v3 and `SP_OPS = "1"`, then redeploy
+   the Worker.
+8. Schedule operation B (`setSpParams(true, 50e18, 5000, 2000)`) and execute it after 1 hour.
+9. Confirm `deployments/testnet-v3.json` was written. Verify the contracts on the explorer. Point the frontend's
+   deployment JSON at v3.
+
 ## MUSD source
 
 Testnet MUSD came from a real MUSD Trove: 0.045 BTC collateral, 1,800 MUSD net debt (≈ 2,001.8 total including the 0.1%

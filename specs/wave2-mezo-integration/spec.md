@@ -3,7 +3,7 @@
 - 作成日: 2026-11-02
 - 対象: Bustline（HEAD 84fa47e 時点のコード）
 - 締切: Wave 2 の提出 2026-11-15
-- 状態: 仕様の確定版。実装は未着手
+- 状態: 実装済み（コントラクト・keeper-worker・画面）。testnet へのデプロイと実ウォレットでの確認は未実施（2026-11-02）
 - 参照した一次資料: `mezo-org/musd`（SHA `da7888a10949c8a5d3f884454cec8978cfa87e48`）、`@mezo-org/passport` 0.17.2、`@mezo-org/orangekit` 1.0.0-beta.40、`@mezo-org/orangekit-smart-account` 1.0.0-beta.24
 
 ## 1. 目的
@@ -108,6 +108,7 @@ testnet のアドレス:
 
 - `src/oracles/SkipBound.sol` を `MezoPriceBound`（仮称）に置き換える。読む相手を Skip の aggregator から MUSD の `PriceFeed` に替える
 - 境界: 署名オラクル（と Pyth）の価格が `PriceFeed.fetchPrice()` から `boundBps`（既定 100 = ±1%）以内であること。外れたら更新を revert する（今と同じ）
+- 境界をかける場所（明確化）: `latest()` は view でイベントを出せないので、`update()` で境界をかけてイベントを出し、`latest()` でも同じ判定をする（Pyth は誰でも直接更新できるため）
 - **PriceFeed が失敗したとき**（60 秒更新なしで revert、その他の revert）は、`try/catch` で受けて境界をかけずに通し、イベント `PriceBoundSkipped` を出す。今の SkipBound が古い Skip を無視して通すのと同じ挙動にする
   - 理由: 境界のせいで価格の更新が止まると、清算が止まる。清算が止まることのほうが危ない
 - 価格の単位: PriceFeed は 18 桁。Bustline の内部の桁数に合わせて変換する
@@ -147,10 +148,19 @@ testnet のアドレス:
   - 手元が `spMinLiquid × (1 − spBandBps)` を下回り、SP に預入があれば、`spMinLiquid` まで `withdrawFromSP` する
   - `withdrawFromSP` が revert したら、`try/catch` で受けてイベント `SpWithdrawBlocked` を出し、正常終了する
   - 実際に受け取った MUSD の額は、残高の差分で測って `houseCash` に足す
+  - **出金が止まっている間は預け入れない**: `SortedTroves.getLast()` の trove の ICR が MCR 未満のとき（＝今は出金できないとき）は、`provideToSP` をしない。預けた後に引き出せなくなるのを避けるため
+    - 2026-11-02 時点の testnet では、ICR が最も低い trove が約 109.3% で MCR を下回っており、SP の出金が止まっている。この状態は、誰かがその trove を清算（`TroveManager.liquidate`）するまで続く
 - `_payWinner` の変更
   - キューが空で手元が支払い額に足りないときは、足りない分を `withdrawFromSP` で補充してみる（`try/catch`）
   - それでも足りない分は、今と同じく FIFO キューに積む
 - `harvest(n)` の変更: キューが残っていて手元が足りないときは、キューの合計まで SP から補充してみてから消化する（`try/catch`）
+- 実装での明確化（2026-11-02）
+  - 「超えた分」は、手元を `spMinLiquid` まで下げる量とする（上限の帯まででなく）。帯の内側では出し入れしないので、細かい預け入れを繰り返さない
+  - キューが空でないときは預け入れない。キューがあって手元が `spMinLiquid + queueTotal` より少なければ、その差を引き出してから `_harvest` する
+  - `spEnabled = false` にしたら、`rebalance()` は預入をすべて引き出す（止めるための手順）
+  - PriceFeed が失敗しているときも預け入れない（このとき SP の出金も止まるため）
+  - 外部呼び出しには固定のガス上限を付け、残りのガスが足りなければ、`catch` に入れず全体を revert する。呼び出し側がガスを絞って、わざと `catch`（境界を外す・勝ちをキューに回す）に入れることを防ぐため
+  - keeper 用の view: `rebalanceAction()`（何をするか）、`spWithdrawable()`、`forwardableBtc()`
 - `receive()`: `msg.sender == stabilityPool` のときだけ受け付け、それ以外は revert する。中で状態は変えない（受け取った BTC は残高として貯まるだけ）
   - SP からの BTC は、`nonReentrant` の関数（決済や `rebalance`）の途中で届く。`receive()` には `nonReentrant` を付けない
 - `forwardBtc()`（誰でも呼べる）
@@ -162,7 +172,7 @@ testnet のアドレス:
 
 - v2 の MUSD の配当に、ネイティブ BTC の配当を足す。配当は reward-per-token の積み上げを、MUSD と BTC で別々に持つ
 - `notifyRewardBtc() payable`: funder（HouseExchange v3）だけが呼べる
-- `claim()`: MUSD と BTC の両方を払う。BTC は `call{value}` で送り、失敗したら revert する。`nonReentrant` を付ける
+- `claim()`: MUSD と BTC の両方を払う。BTC は `call{value}` で送り、失敗したら revert する。`nonReentrant` を付ける。戻り値は `(uint256 musd, uint256 btc)`
 - `funder` は v2 と同じく immutable
 
 #### リスクと対処
@@ -251,8 +261,8 @@ testnet のアドレス:
 
 ## 8. 着手前に確かめること
 
-1. **fork テストで Skip の precompile が動くか。** PriceFeed、BorrowerOperations、StabilityPool の出金は、内部で Skip の precompile（`0x7b7c…0015`）を読む。anvil の fork にはこの precompile が無いので revert する見込み。そのアドレスに `vm.etch` で mock の aggregator を置く方法を最初に試す
-2. testnet の faucet で、1回にどれだけ BTC がもらえるか（「BTC で始める」を既定にできるか）
+1. ~~fork テストで Skip の precompile が動くか~~ → **確認済み（2026-11-02）**: そのままでは revert するが、`vm.etch` で mock の aggregator を置けば、PriceFeed、BorrowerOperations、StabilityPool がすべて fork で動く（`test/fork/MezoPrimitivesFork.t.sol`）
+2. ~~testnet の faucet で、1回にどれだけ BTC がもらえるか~~ → **確認済み（2026-11-02）**: 1回 0.05 BTC。1回で trove を開けるので、既定の入金方法は「BTC で始める」のまま
 3. v2 の建玉、escrow、キュー、houseCash、RebateStaking のステーク量（RPC で読む）
 4. `RebateToken.setStaking` を切り替えた後も、v2 の RebateStaking から unstake できるか
 5. SP の初期パラメータ（`spMinLiquid` など）を 3 の結果で決める

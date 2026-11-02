@@ -6,6 +6,7 @@ import { HouseExchange } from "../src/HouseExchange.sol";
 import { RebateToken } from "../src/RebateToken.sol";
 import { MockERC20 } from "../src/mocks/MockERC20.sol";
 import { ImpactLib } from "../src/libraries/ImpactLib.sol";
+import { MockStabilityPool, MockPriceFeed, MockSortedTroves, MockTroveManager } from "./mocks/MezoMocks.sol";
 
 contract HouseExchangeTest is Base {
     function setUp() public virtual {
@@ -279,12 +280,32 @@ contract HouseExchangeTest is Base {
     }
 
     // ---------------------------------------------------------------- randomized accounting
+    /// v3: besides trading and price moves, the steps also include Stability Pool operations (mocked SP):
+    /// `rebalance`, SP liquidation losses (deposit burnt + BTC gain), toggling blocked withdrawals, harvest/forwardBtc.
+    /// The accounting identity and the queue sum are checked after EVERY step.
     function testFuzz_randomTradingKeepsAccounting(uint256 seed) public {
+        _randomTrading(seed);
+    }
+
+    /// Guards against the fuzz silently never touching the SP: over fixed seeds, deposits/withdrawals must happen.
+    function test_randomTrading_fixedSeedsExerciseStabilityPool() public {
+        uint256 total;
+        for (uint256 s = 1; s <= 6; ++s) {
+            uint256 snap = vm.snapshotState();
+            total += _randomTrading(s);
+            vm.revertToState(snap);
+        }
+        emit log_named_uint("steps with an SP deposit (6 seeds x 48 steps)", total);
+        assertGt(total, 20);
+    }
+
+    function _randomTrading(uint256 seed) internal returns (uint256 stepsWithSpDeposit) {
+        MockStabilityPool sp = _wireMockSp(seed);
         address[3] memory who = [alice, bob, carol];
         uint256 price = P0;
-        for (uint256 i; i < 24; ++i) {
+        for (uint256 i; i < 48; ++i) {
             seed = uint256(keccak256(abi.encode(seed, i)));
-            uint256 op = seed % 4;
+            uint256 op = seed % 8;
             address w = who[(seed >> 8) % 3];
             if (op <= 1) {
                 _open(w, (seed >> 16) % 2 == 0, 10e18 + (seed >> 24) % 1_000e18, 1 + (seed >> 40) % 100, price);
@@ -293,7 +314,7 @@ contract HouseExchangeTest is Base {
                 if (ids.length == 0) continue;
                 uint256 pid = ids[(seed >> 48) % ids.length];
                 _close(ex.getPosition(pid).owner, pid, price);
-            } else {
+            } else if (op == 3) {
                 // random walk ±3%
                 uint256 bps = (seed >> 56) % 600;
                 price = bps >= 300 ? price * (10_000 + bps - 300) / 10_000 : price * (10_000 - bps) / 10_000;
@@ -302,12 +323,38 @@ contract HouseExchangeTest is Base {
                 for (uint256 k; k < ids.length; ++k) {
                     if (ex.isLiquidatable(ids[k])) ex.liquidate(ids[k], NO_UPD);
                 }
+            } else if (op == 4 || op == 5) {
+                ex.rebalance();
+            } else if (op == 6) {
+                // SP liquidation: burn up to 30% of our deposit, credit some BTC
+                uint256 dep = ex.spDeposit();
+                sp.liquidate(address(ex), dep * ((seed >> 64) % 3_000) / 10_000, (seed >> 80) % 1e15);
+            } else {
+                if ((seed >> 96) % 2 == 0) sp.setBlocked(!sp.blocked());
+                else if ((seed >> 97) % 2 == 0) ex.harvest(100);
+                else ex.forwardBtc();
             }
             _checkAccounting();
+            if (ex.spDeposit() > 0) ++stepsWithSpDeposit;
         }
+        sp.setBlocked(false);
         ex.harvest(100);
         _checkAccounting();
         // house can never pay more than it received
         assertLe(ex.cumulativePaid(), ex.cumulativeLosses());
+    }
+
+    /// @dev Mock Stability Pool + "withdrawals not blocked" ICR mocks, small band so deposits really happen.
+    function _wireMockSp(uint256 seed) internal returns (MockStabilityPool sp) {
+        sp = new MockStabilityPool(address(musd));
+        vm.deal(address(sp), 10 ether);
+        MockSortedTroves sorted = new MockSortedTroves();
+        sorted.setLast(makeAddr("lowTrove"));
+        vm.startPrank(owner);
+        ex.setStabilityPool(
+            address(sp), address(new MockPriceFeed(P0)), address(sorted), address(new MockTroveManager())
+        );
+        ex.setSpParams(true, 20e18 + seed % 200e18, 1_000 + (seed >> 4) % 9_000, (seed >> 20) % 5_000);
+        vm.stopPrank();
     }
 }

@@ -61,8 +61,9 @@ Signature / calldata / raw-tx encoding is checked byte-for-byte against the Pyth
 
 ```bash
 cd keeper-worker
-npm install
-W="npx -y -p node@22 -p wrangler@latest -- wrangler"   # wrangler needs Node >= 22
+pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageManager pins pnpm@10.33.2)
+pnpm check                                              # tsc --noEmit
+W="pnpm dlx --package node@22 --package wrangler@latest wrangler"   # wrangler needs Node >= 22
 $W deploy
 printenv MEZO_TESTNET_PRIVATE_KEY | $W secret put KEEPER_PRIVATE_KEY   # pipe only; never echo the key
 $W tail --format pretty                                               # watch ticks
@@ -101,7 +102,7 @@ Local, against a testnet deployment:
 
 ```bash
 cp deployments/testnet.json frontend/public/deployment.testnet.json
-cd frontend && NEXT_PUBLIC_MODE=testnet npm run build && npm start   # writes are signed by Mezo Passport
+cd frontend && pnpm install --frozen-lockfile && NEXT_PUBLIC_MODE=testnet pnpm build && pnpm start   # writes are signed by Mezo Passport
 ```
 
 Static build for Cloudflare Pages (live at https://bustline-c8p.pages.dev; the app is a single static page with no API
@@ -109,7 +110,19 @@ routes, so `output: "export"` works; Wrangler needs Node ≥ 22):
 
 ```bash
 cd frontend
-npm ci --legacy-peer-deps
-STATIC_EXPORT=1 NEXT_PUBLIC_MODE=testnet NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org npx next build
-npx -p node@22 -p wrangler@latest -- wrangler pages deploy out --project-name bustline --branch main
+pnpm install --frozen-lockfile
+STATIC_EXPORT=1 NEXT_PUBLIC_MODE=testnet NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org pnpm exec next build
+pnpm dlx --package node@22 --package wrangler@latest wrangler pages deploy out --project-name bustline --branch main
 ```
+
+Package manager: both `frontend/` and `keeper-worker/` use **pnpm** (`packageManager` in each `package.json`; settings
+in each `pnpm-workspace.yaml`):
+
+- `minimumReleaseAge: 10080` — newly resolved versions must be at least 7 days old (supply-chain guard).
+- frontend only: `autoInstallPeers: false` + `strictPeerDependencies: false` replace the old `npm ci --legacy-peer-deps`
+  (otherwise pnpm pulls react-native and other unused peers of `@mezo-org/passport` into the tree); the wagmi pins that
+  were npm `overrides` are now pnpm `overrides`; dependency build scripts stay blocked (`ignoredBuiltDependencies`,
+  all have pure-JS fallbacks or are unused).
+
+Read-only preview: `?viewAs=0x…` shows any address's trove, balances and the deposit routes without a wallet (every
+write is refused). Used for screenshots of the "has a trove" / "no trove" states.

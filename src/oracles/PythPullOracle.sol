@@ -4,14 +4,16 @@ pragma solidity ^0.8.24;
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IPriceOracle } from "../interfaces/IPriceOracle.sol";
 import { IPyth } from "../interfaces/IPyth.sol";
-import { SkipBound } from "./SkipBound.sol";
+import { MezoPriceBound } from "./MezoPriceBound.sol";
 
 /// @title PythPullOracle — primary price = Pyth BTC/USD (mainnet "stable" feed), pushed by the keeper.
 /// @notice The keeper fetches a signed update from Pyth Hermes and passes it into the fill/liquidation tx; the Pyth
 ///         contract on Mezo verifies the Wormhole guardian signatures on-chain (trustless w.r.t. the keeper).
 ///         Verified 2026-10-21: Mezo testnet Pyth (0x2880…7B43, v1.4.6) uses the same guardian set + Pythnet data source
 ///         as Base mainnet and accepted a mainnet-signed BTC/USD update (eth_call + fork test).
-contract PythPullOracle is IPriceOracle, SkipBound {
+///         Sanity bound: within `boundBps` of MUSD PriceFeed (MezoPriceBound), checked on `update` (event if skipped)
+///         and again on every `latest()` read (Pyth can also be updated directly, bypassing `update`).
+contract PythPullOracle is IPriceOracle, MezoPriceBound {
     IPyth public immutable pyth;
     bytes32 public immutable feedId;
     uint256 public maxAge; // seconds
@@ -38,6 +40,11 @@ contract PythPullOracle is IPriceOracle, SkipBound {
     /// @notice Permissionless: anyone may push a Pyth update (signatures are verified by Pyth).
     function update(bytes[] calldata data) external payable {
         pyth.updatePriceFeeds{ value: msg.value }(data);
+        IPyth.Price memory q = pyth.getPriceUnsafe(feedId);
+        if (q.price > 0) {
+            (uint256 p,,) = _read();
+            _checkBoundLogged(p);
+        }
     }
 
     function _read() internal view returns (uint256 p, uint256 t, uint256 conf) {
@@ -60,7 +67,7 @@ contract PythPullOracle is IPriceOracle, SkipBound {
         (p, t, conf) = _read();
         if (t + maxAge < block.timestamp) revert StalePrice(t);
         if (conf * 10_000 > p * maxConfBps) revert WideConfidence();
-        _checkSkip(p);
+        _checkBound(p);
     }
 
     function peek() external view returns (uint256 p, uint256 t) {

@@ -24,6 +24,7 @@ export type Deployment = {
   RebateToken: `0x${string}`;
   RebateStaking: `0x${string}`;
   HouseExchange: `0x${string}`;
+  Mezo?: Partial<MezoProtocol>;
 };
 
 export async function loadDeployment(): Promise<Deployment | null> {
@@ -36,3 +37,26 @@ export async function loadDeployment(): Promise<Deployment | null> {
     return null;
   }
 }
+
+/** Mezo MUSD protocol (testnet, spec 3.2 — verified against mezo-org/musd @ da7888a). The local anvil fork keeps the
+ *  same addresses, but its EVM cannot run the Skip precompile, so PriceFeed.fetchPrice() reverts there and the trove
+ *  routes show as unavailable. Override per deployment with `"Mezo": { ... }` in the deployment JSON. */
+export type MezoProtocol = {
+  BorrowerOperations: `0x${string}`;
+  TroveManager: `0x${string}`;
+  HintHelpers: `0x${string}`;
+  SortedTroves: `0x${string}`;
+  PriceFeed: `0x${string}`;
+  StabilityPool: `0x${string}`;
+};
+export const MEZO_TESTNET: MezoProtocol = {
+  BorrowerOperations: "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5",
+  TroveManager: "0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0",
+  HintHelpers: "0x4e4cBA3779d56386ED43631b4dCD6d8EacEcBCF6",
+  SortedTroves: "0x722E4D24FD6Ff8b0AC679450F3D91294607268fA",
+  PriceFeed: "0x86bCF0841622a5dAC14A313a15f96A95421b9366",
+  StabilityPool: "0x1CCA7E410eE41739792eA0A24e00349Dd247680e",
+};
+export const mezoProtocol = (d: Deployment): MezoProtocol => ({ ...MEZO_TESTNET, ...(d.Mezo ?? {}) });
+export const BTC_FAUCET_URL = "https://faucet.test.mezo.org";
+export const EXPLORER_URL = "https://explorer.test.mezo.org";

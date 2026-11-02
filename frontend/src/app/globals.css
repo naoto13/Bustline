@@ -137,3 +137,46 @@ input[type=number]::-webkit-inner-spin-button { opacity: .4; }
 }
 .pgrid { align-content: start; }
 .chartwrap.fixed { height: 300px; flex: none; margin: 0 -10px -10px; border-top: 1px solid var(--line); }
+
+/* funding: the three deposit routes (spec 5.3) */
+:root { --trove: #2F5D7C; --amber: #8A5A12; --amberbg: #F1E3C2; }
+.amber { color: var(--amber); }
+.sw.trove { border-top: 1.5px solid var(--trove); }
+.tag-ro { background: #DCE3E8; color: var(--trove); border: 1px solid #B9C8D3; }
+.funding { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; }
+.fundlbl { margin-top: 0; }
+.seg.route { grid-template-columns: 1fr 1fr; margin: 0; }
+.seg.route button { padding: 7px 4px; font-size: 10.5px; }
+.seg.route button.on { background: var(--bg); color: var(--ink); box-shadow: inset 0 0 0 1px var(--brown); }
+.seg.route button:disabled:not(.on) { opacity: .45; cursor: not-allowed; }
+.seg.route button:focus-visible, .chipbtn:focus-visible, .primary:focus-visible, .pill:focus-visible { outline: 2px solid var(--brown); outline-offset: 1px; }
+.fundbox { background: var(--panel); border: 1px solid var(--line); border-radius: 2px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; }
+.fundbox .lbl { text-align: left; color: var(--muted); margin-top: 3px; }
+.fundbox .readouts { margin-top: 3px; }
+.fundbox .readouts .kv { font-weight: 500; }
+.faucet { font-size: 10px; color: var(--brown); text-decoration: underline; text-underline-offset: 2px; align-self: flex-start; padding: 2px 0; }
+.faucet:hover { color: var(--ink); }
+.note { font-size: 10px; line-height: 1.45; padding: 5px 7px; border-radius: 2px; background: var(--amberbg); color: var(--amber); border: 1px solid #E2CB98; }
+.note.warn { background: var(--redbg); color: var(--red); border-color: #DDB5A6; }
+.twolines { border: 1px solid var(--line); border-radius: 2px; padding: 5px 8px; font-size: 10.5px; display: flex; flex-direction: column; gap: 2px; }
+.twolines b { font-weight: 600; }
+.twolines .fine { margin: 2px 0 0; }
+.fine.hint { margin: 0; }
+.fine.neg { color: var(--red); }
+.fine.pos { color: var(--green); }
+.steps { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.steps .st { display: flex; gap: 7px; align-items: flex-start; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.steps .dot { flex: none; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-size: 9px; font-weight: 700; background: var(--bg); font-family: var(--mono); }
+.steps .sl { min-width: 0; overflow-wrap: anywhere; }
+.steps .st.running { color: var(--ink); }
+.steps .st.running .dot { border-color: var(--brown); color: var(--brown); animation: pulse 1.2s ease-in-out infinite; }
+.steps .st.done, .steps .st.skipped { color: var(--ink); }
+.steps .st.done .dot { background: var(--greenbg); border-color: var(--green); color: var(--green); }
+.steps .st.failed { color: var(--ink); }
+.steps .st.failed .dot { background: var(--redbg); border-color: var(--red); color: var(--red); }
+.steps .err { display: block; color: var(--red); font-size: 9.5px; }
+.steps a { text-decoration: underline; text-underline-offset: 2px; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .steps .st.running .dot, .wordmark .cursor { animation: none; } }
+.repay { margin-top: 4px; }
+.repay .primary.sm { align-self: flex-start; margin-top: 3px; }

@@ -27,9 +27,9 @@ contract DeployTestnet is Script {
         vm.startBroadcast(pk);
         // Both oracles are deployed; the exchange owner can switch with setOracle() (one tx) once Hermes access exists.
         PythPullOracle pythOracle = new PythPullOracle(MezoExtra.PYTH, MezoExtra.PYTH_BTC_USD, 60, owner);
-        pythOracle.setSkipBound(MezoTestnet.SKIP_BTC_USD, 100, 300); // Pyth must stay within 1% of Skip
+        pythOracle.setPriceBound(MezoTestnet.PRICE_FEED, 100); // v3: bound = MUSD PriceFeed (was Skip in v2)
         SignedPriceOracle signedOracle = new SignedPriceOracle(reporter, 60, owner);
-        signedOracle.setSkipBound(MezoTestnet.SKIP_BTC_USD, 100, 300);
+        signedOracle.setPriceBound(MezoTestnet.PRICE_FEED, 100);
         address oracle = pythPrimary ? address(pythOracle) : address(signedOracle);
         RebateToken rt = new RebateToken(
             vm.envOr("REBATE_NAME", string("Mezo Paper")), vm.envOr("REBATE_SYMBOL", string("MPAPER")), owner

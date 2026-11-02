@@ -1,0 +1,31 @@
+# pnpm settings for this standalone package (not a multi-package workspace).
+# Supply-chain guard: only resolve versions published at least 7 days ago (pnpm >= 10.16).
+minimumReleaseAge: 10080
+
+# Equivalent of the former `npm ci --legacy-peer-deps`: do not auto-install peer deps.
+# @mezo-org/passport / wagmi connectors declare optional-in-practice peers (react-native,
+# @react-native-async-storage, old React 16 peers of baseui). Auto-installing them pulls
+# react-native into the tree; npm with --legacy-peer-deps never installed them.
+autoInstallPeers: false
+strictPeerDependencies: false
+
+# Moved from package.json "overrides" (npm) — keep wagmi pinned to the versions Passport 0.17.2 supports.
+overrides:
+  wagmi: 2.12.17
+  '@wagmi/core': 2.13.8
+  '@wagmi/connectors': 5.1.15
+
+# pnpm 10 blocks dependency build scripts by default. None are needed for the browser bundle:
+# bufferutil / utf-8-validate / keccak / secp256k1 fall back to pure JS, esbuild is unused by Next 14,
+# and core-js / es5-ext / web3* postinstalls only print messages. Keep them blocked explicitly.
+ignoredBuiltDependencies:
+  - bufferutil
+  - core-js
+  - es5-ext
+  - esbuild
+  - keccak
+  - secp256k1
+  - utf-8-validate
+  - web3
+  - web3-bzz
+  - web3-shh

@@ -7,7 +7,8 @@ import { RebateToken } from "../src/RebateToken.sol";
 import { RebateStaking } from "../src/RebateStaking.sol";
 import { PythPullOracle } from "../src/oracles/PythPullOracle.sol";
 import { SignedPriceOracle } from "../src/oracles/SignedPriceOracle.sol";
-import { SkipBound } from "../src/oracles/SkipBound.sol";
+import { MezoPriceBound } from "../src/oracles/MezoPriceBound.sol";
+import { MockPriceFeed } from "./mocks/MezoMocks.sol";
 import { MockPyth } from "../src/mocks/MockPyth.sol";
 import { MockOracle } from "../src/mocks/MockOracle.sol";
 import { MockERC20 } from "../src/mocks/MockERC20.sol";
@@ -23,7 +24,7 @@ contract OraclesTest is Test {
     MockPyth py;
     PythPullOracle po;
     SignedPriceOracle so;
-    MockOracle skipFeed;
+    MockPriceFeed feed;
 
     function setUp() public {
         vm.warp(1_800_000_000);
@@ -31,8 +32,7 @@ contract OraclesTest is Test {
         py = new MockPyth();
         po = new PythPullOracle(address(py), ID, 60, owner);
         so = new SignedPriceOracle(signerAddr, 60, owner);
-        skipFeed = new MockOracle(100_000e18);
-        skipFeed.setMaxStaleness(365 days);
+        feed = new MockPriceFeed(100_000e18);
     }
 
     function _pyUpd(int64 p, uint256 t) internal pure returns (bytes[] memory u) {
@@ -78,20 +78,27 @@ contract OraclesTest is Test {
         po.latest();
     }
 
-    function test_pyth_skipDeviationBound() public {
+    function test_pyth_priceFeedDeviationBound() public {
         vm.prank(owner);
-        po.setSkipBound(address(skipFeed), 100, 300); // 1%
+        po.setPriceBound(address(feed), 100); // 1%
         bytes[] memory u = _pyUpd(10_050_000_000_000, block.timestamp); // +0.5%
         po.update{ value: 1 }(u);
         po.latest();
         u = _pyUpd(10_200_000_000_000, block.timestamp + 1); // +2%
         vm.warp(block.timestamp + 1);
+        // through our update(): rejected right away
+        vm.expectRevert(abi.encodeWithSelector(MezoPriceBound.PriceDeviation.selector, 102_000e18, 100_000e18));
         po.update{ value: 1 }(u);
-        vm.expectRevert(abi.encodeWithSelector(SkipBound.PriceDeviation.selector, 102_000e18, 100_000e18));
+        // pushed to Pyth directly (bypassing update): rejected on read
+        py.updatePriceFeeds{ value: 1 }(u);
+        vm.expectRevert(abi.encodeWithSelector(MezoPriceBound.PriceDeviation.selector, 102_000e18, 100_000e18));
         po.latest();
-        // stale Skip disables the bound instead of freezing the market
-        skipFeed.setPriceRaw(100_000e18, block.timestamp - 301);
+        // a failing PriceFeed (stale Skip) disables the bound instead of freezing the market
+        feed.setReverting(true);
         po.latest();
+        vm.expectEmit(address(po));
+        emit MezoPriceBound.PriceBoundSkipped(102_000e18);
+        po.update{ value: 1 }(u);
     }
 
     // ------------------------------------------------------------------ signed fallback
@@ -143,12 +150,15 @@ contract OraclesTest is Test {
         other.update(u);
     }
 
-    function test_signed_skipBound() public {
+    function test_signed_priceFeedBound() public {
         vm.prank(owner);
-        so.setSkipBound(address(skipFeed), 100, 300);
-        so.update(_signed(102_000e18, block.timestamp));
-        vm.expectRevert(abi.encodeWithSelector(SkipBound.PriceDeviation.selector, 102_000e18, 100_000e18));
-        so.latest();
+        so.setPriceBound(address(feed), 100);
+        bytes[] memory bad = _signed(102_000e18, block.timestamp);
+        vm.expectRevert(abi.encodeWithSelector(MezoPriceBound.PriceDeviation.selector, 102_000e18, 100_000e18));
+        so.update(bad);
+        so.update(_signed(100_900e18, block.timestamp)); // +0.9%: inside
+        (uint256 p,) = so.latest();
+        assertEq(p, 100_900e18);
     }
 
     // ------------------------------------------------------------------ exchange integration (2-step on publishTime)

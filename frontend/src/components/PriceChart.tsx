@@ -7,7 +7,8 @@ export type Guide = { price: number; label: string; color: string; dashed?: bool
 const PAD = { l: 0, r: 64, t: 12, b: 22 };
 
 /** Lightweight SVG line chart: BTC close series + current-price tag + dashed bust/entry guides. */
-export default function PriceChart({ data, mark, guides }: { data: Candle[]; mark?: number; guides: Guide[] }) {
+/** `fit` scales the y-axis to every guide (e.g. a trove liquidation line ~30% below the mark next to a 2% bust line). */
+export default function PriceChart({ data, mark, guides, fit }: { data: Candle[]; mark?: number; guides: Guide[]; fit?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [sz, setSz] = useState({ w: 800, h: 400 });
   useEffect(() => {
@@ -28,7 +29,7 @@ export default function PriceChart({ data, mark, guides }: { data: Candle[]; mar
   if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 1; }
   // pull guides into the visible range when they are reasonably close (≤ 3% from the mark); others pin to the edge
   const ref0 = last || (lo + hi) / 2;
-  for (const g of guides) if (g.price > 0 && Math.abs(g.price - ref0) / ref0 <= 0.03) { lo = Math.min(lo, g.price); hi = Math.max(hi, g.price); }
+  for (const g of guides) if (g.price > 0 && (fit || Math.abs(g.price - ref0) / ref0 <= 0.03)) { lo = Math.min(lo, g.price); hi = Math.max(hi, g.price); }
   const span = Math.max(hi - lo, ref0 * 0.0005);
   lo -= span * 0.08;
   hi += span * 0.08;

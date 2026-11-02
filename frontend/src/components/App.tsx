@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConnectButton, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount, useWriteContract } from "wagmi";
-import { parseUnits, formatUnits, maxUint256, type Address, type Abi } from "viem";
+import { parseUnits, formatUnits, maxUint256, isAddress, type Address, type Abi, type Hex } from "viem";
 import Providers from "./Providers";
 import PriceChart, { type Candle, type Guide } from "./PriceChart";
+import Funding, { type WriteOpts } from "./Funding";
 import { HouseExchangeAbi, RebateStakingAbi, RebateTokenAbi, MockERC20Abi, MockOracleAbi } from "@/abi";
 import { ANVIL_ACCOUNTS, MODE, RPC_URL, loadDeployment, type Deployment } from "@/lib/config";
 import { publicClient, localWallet } from "@/lib/chain";
@@ -132,9 +133,18 @@ function Dashboard() {
   const [tab, setTab] = useState<Tab>("trade");
   const [btab, setBtab] = useState<"positions" | "orders" | "activity" | "status">("positions");
   const [gran, setGran] = useState<Gran>("1m");
+  const [troveLines, setTroveLines] = useState<Guide[]>([]);
+  const [fitLines, setFitLines] = useState(true);
+  // `?viewAs=0x…` — read-only preview of any address (no signing). Read in an effect so the static export keeps working.
+  const [viewAs, setViewAs] = useState<Address | undefined>(undefined);
 
   useEffect(() => { loadDeployment().then(setDep); }, []);
-  const who: Address | undefined = MODE === "local" ? acct : passportAddr;
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("viewAs");
+    if (v && isAddress(v)) setViewAs(v);
+  }, []);
+  const readOnly = !!viewAs;
+  const who: Address | undefined = viewAs ?? (MODE === "local" ? acct : passportAddr);
   const m = useQuery({ queryKey: ["market", dep?.HouseExchange], queryFn: () => readMarket(dep!), enabled: !!dep, refetchInterval: 3000 });
   const u = useQuery({ queryKey: ["user", dep?.HouseExchange, who], queryFn: () => readUser(dep!, who!), enabled: !!dep && !!who, refetchInterval: 3000 });
   const candles = useQuery({ queryKey: ["candles", gran], queryFn: () => fetchCandles(gran), refetchInterval: 15000, retry: 1 });
@@ -142,20 +152,23 @@ function Dashboard() {
   const push = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()} ${s}`, ...l].slice(0, 60));
 
   const write = useCallback(
-    async (address: Address, abi: Abi, functionName: string, args: readonly unknown[], from?: Address) => {
+    async (address: Address, abi: Abi, functionName: string, args: readonly unknown[], opts: WriteOpts = {}): Promise<Hex> => {
+      if (viewAs) throw new Error("read-only preview (?viewAs) — nothing is signed");
+      const { from, value, onHash } = opts;
+      let hash: Hex;
       if (MODE === "local") {
         const w = await localWallet(from ?? acct);
-        const hash = await w.writeContract({ address, abi, functionName, args, chain: w.chain, account: from ?? acct, gas: 3_000_000n } as never);
-        const rc = await publicClient.waitForTransactionReceipt({ hash });
-        if (rc.status !== "success") throw new Error(`tx reverted ${hash}`);
-        return hash;
+        hash = await w.writeContract({ address, abi, functionName, args, value, chain: w.chain, account: from ?? acct, gas: 3_000_000n } as never);
+      } else {
+        // exactly one call per signature (Passport BTC smart accounts cannot batch, spec 3.3)
+        hash = await writeContractAsync({ address, abi, functionName, args, value } as never);
       }
-      const hash = await writeContractAsync({ address, abi, functionName, args } as never);
+      onHash?.(hash);
       const rc = await publicClient.waitForTransactionReceipt({ hash });
       if (rc.status !== "success") throw new Error(`tx reverted ${hash}`);
       return hash;
     },
-    [acct, writeContractAsync],
+    [acct, writeContractAsync, viewAs],
   );
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -186,13 +199,14 @@ function Dashboard() {
   const guides = useMemo<Guide[]>(() => {
     const g: Guide[] = [];
     if (mk && marginW > 0n) g.push({ price: f(estBust), label: `BUST ${side.toUpperCase()} ${lev}x (order)`, color: side === "long" ? "#2E6B3F" : "#9B2C2C", dashed: true });
+    g.push(...troveLines);
     for (const p of myPositions) {
       g.push({ price: f(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk?.bufDiv ?? 2000n)), label: `#${p.id} BUST`, color: "#9B2C2C", dashed: true });
       g.push({ price: f(p.entryPrice), label: `#${p.id} ENTRY ${p.isLong ? "L" : "S"}`, color: "#7A5C2E" });
     }
     return g;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mk, estBust, side, lev, marginW, myPositions.length]);
+  }, [mk, estBust, side, lev, marginW, myPositions.length, troveLines]);
 
   if (dep === undefined) return <main className="center">Loading deployment…</main>;
   if (dep === null)
@@ -203,11 +217,6 @@ function Dashboard() {
     );
   const d = dep;
 
-  const openOrder = () =>
-    run(`requestOpen ${side} ${margin} MUSD × ${lev}x`, async () => {
-      if ((us?.allowance ?? 0n) < marginW) await write(d.MUSD, E20, "approve", [d.HouseExchange, maxUint256]);
-      return write(d.HouseExchange, EX, "requestOpen", [side === "long", marginW, BigInt(lev), 0n]);
-    });
   const closeAll = () =>
     run(`requestClose all (${myPositions.length})`, async () => {
       let h: unknown;
@@ -221,17 +230,17 @@ function Dashboard() {
       const owner = ANVIL_ACCOUNTS[0].address;
       const p = await r<bigint>(d.MockOracle!, MockOracleAbi as Abi, "priceValue");
       await publicClient.request({ method: "evm_increaseTime" as never, params: [1] as never } as never);
-      await write(d.MockOracle!, MockOracleAbi as Abi, "setPrice", [p], owner);
+      await write(d.MockOracle!, MockOracleAbi as Abi, "setPrice", [p], { from: owner });
       const mm = await readMarket(d);
-      for (const o of mm.orders) await write(d.HouseExchange, EX, "executeOrder", [o.id, []], owner);
-      for (const p2 of mm.positions) if (await r<boolean>(d.HouseExchange, EX, "isLiquidatable", [p2.id])) await write(d.HouseExchange, EX, "liquidate", [p2.id, []], owner);
+      for (const o of mm.orders) await write(d.HouseExchange, EX, "executeOrder", [o.id, []], { from: owner });
+      for (const p2 of mm.positions) if (await r<boolean>(d.HouseExchange, EX, "isLiquidatable", [p2.id])) await write(d.HouseExchange, EX, "liquidate", [p2.id, []], { from: owner });
       return `filled ${mm.orders.length}`;
     });
   const movePrice = (pct: number) =>
     run(`oracle ${pct > 0 ? "+" : ""}${pct}%`, async () => {
       const p = await r<bigint>(d.MockOracle!, MockOracleAbi as Abi, "priceValue");
       await publicClient.request({ method: "evm_increaseTime" as never, params: [1] as never } as never);
-      return write(d.MockOracle!, MockOracleAbi as Abi, "setPrice", [(p * BigInt(Math.round((100 + pct) * 100))) / 10000n], ANVIL_ACCOUNTS[0].address);
+      return write(d.MockOracle!, MockOracleAbi as Abi, "setPrice", [(p * BigInt(Math.round((100 + pct) * 100))) / 10000n], { from: ANVIL_ACCOUNTS[0].address });
     });
 
   const priceN = f(mk?.price);
@@ -255,6 +264,7 @@ function Dashboard() {
       </nav>
       <div className="navr">
         <span className="chip tag-testnet">TESTNET · UNAUDITED</span>
+        {readOnly && <span className="chip tag-ro" title="?viewAs preview — wallet actions are disabled">READ-ONLY · {short(who!)}</span>}
         {who && <span className="navbal"><span className="k">MUSD</span> <b className="num">{num(us?.musd)}</b></span>}
         {MODE === "local" ? (
           <select className="acct" value={acct} onChange={(e) => setAcct(e.target.value as Address)}>
@@ -340,11 +350,9 @@ function Dashboard() {
         <Row k="Bust Price" v={<span className={side === "long" ? "pos" : "neg"}>{mk ? usd(estBust) : "– –"}</span>} />
         <Row k="Fill" v="next oracle update" />
       </div>
-      {MODE !== "local" && !who ? (
-        <button className="primary" onClick={() => openConnectModal?.()}>Connect wallet</button>
-      ) : (
-        <button className="primary" disabled={busy || !who} onClick={openOrder}>Request {side} open</button>
-      )}
+      <Funding d={d} who={who} readOnly={readOnly} busy={busy} side={side} lev={lev} marginW={marginW} musd={us?.musd}
+        mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run}
+        needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} />
       <div className="fine">2-step: keeper fills at the next signed price (Skip ±1% bound). No funding, no spread; winners pay an impact haircut + 2% win fee. Bust = liquidation.</div>
       {MODE === "local" && (
         <div className="demo">
@@ -435,14 +443,19 @@ function Dashboard() {
       <div className="tleft">
         {statRow}
         <div className="chartwrap">
-          <PriceChart data={candles.data ?? []} mark={isFinite(priceN) ? priceN : undefined} guides={guides} />
+          <PriceChart data={candles.data ?? []} mark={isFinite(priceN) ? priceN : undefined} guides={guides} fit={fitLines && troveLines.length > 0} />
           <div className="gran">
+            {troveLines.length > 0 && (
+              <button className={`pill ${fitLines ? "on" : ""}`} aria-pressed={fitLines} onClick={() => setFitLines((v) => !v)}
+                title="Scale the chart so the bust line and the trove liquidation line are both drawn">Both liq. lines</button>
+            )}
             {(Object.keys(GRAN) as Gran[]).map((g) => <button key={g} className={`pill ${gran === g ? "on" : ""}`} onClick={() => setGran(g)}>{g}</button>)}
           </div>
           <div className="legend">
             <span><i className="sw line" /> BTC-USD (Coinbase, {gran})</span>
             <span><i className="sw mark" /> on-chain mark</span>
             <span><i className="sw bust" /> bust price</span>
+            {troveLines.length > 0 && <span><i className="sw trove" /> trove liquidation (ICR 110%)</span>}
           </div>
         </div>
         <div className="opbar">
