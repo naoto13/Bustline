@@ -9,6 +9,7 @@ Planned before the Wave 2 deadline (2026-11-15):
 
 - Real-wallet runs of all three funding routes (Passport BTC wallet and an EVM wallet), from a non-deployer wallet.
 - Redeploy of the contract fixes below (they are not on-chain yet; v3 on testnet still runs the 2026-11-06 code).
+- Demo video recorded on v3.
 
 ### Fixed (in the repo, after an independent review of the Wave 2 contracts on 2026-11-06)
 
@@ -16,7 +17,7 @@ Planned before the Wave 2 deadline (2026-11-15):
   stays owed (`BtcClaimFailed`), and the new `claimBtcTo(address)` sends it to another address.
 - `HouseExchange.sweepExcess()` no longer sweeps on-hand MUSD below `spMinLiquid` while the house has a Stability Pool
   deposit, so winners can still be paid if Stability Pool withdrawals are blocked.
-- Demo video recorded on v3.
+- 5 regression tests added (85 unit/fuzz tests in total).
 
 ## [v3-wave2] — 2026-11-06 — Wave 2: Mezo-native integration on testnet
 
@@ -34,7 +35,7 @@ Planned before the Wave 2 deadline (2026-11-15):
   borrow MUSD, open a position in one flow), "From my trove", and "Deposit MUSD"; hints via HintHelpers/SortedTroves;
   ICR, two liquidation lines, minimum debt, gas compensation, fees.
 - Fork tests against Mezo testnet primitives (`test/fork/MezoPrimitivesFork.t.sol`, `WaveTwoFork.t.sol`) and timelock
-  tests. Totals: 80 unit/fuzz (85 after the review fixes), 44 fork, 23 keeper.
+  tests. Totals: 80 unit/fuzz, 44 fork, 23 keeper.
 
 ### Changed
 
