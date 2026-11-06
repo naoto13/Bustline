@@ -57,7 +57,7 @@ Same three keys as v3. A leaked keeper or signer key can neither pause nor call 
 
 | Op | Call | Status |
 |---|---|---|
-| B — enable the Stability Pool | `HouseExchange v3.1.setSpParams(true, 50e18, 5000, 2000)` (min liquid 50 MUSD, max share 50%, band 20%) | **Scheduled 2026-11-07 03:51 JST, executes after the 1-hour delay** (ready after 04:52 JST). id `0x77cc7265afb4c8530c759f7d95ea41d49fd3c1596e452bdc7693d4bea0d47909`, salt `keccak256("bustline-v3.1-sp-enable")` = `0x2f2e4a04e8a04eaf31038a0c61aaa833e8ee735299e060bc15d09dc32ef19f3b`, schedule tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`. Execute tx: `TODO(execute tx)` |
+| B — enable the Stability Pool | `HouseExchange v3.1.setSpParams(true, 50e18, 5000, 2000)` (min liquid 50 MUSD, max share 50%, band 20%) | **Done 2026-11-07** (scheduled 03:51 JST, executed after the 1-hour delay; `spEnabled = true`). id `0x77cc7265afb4c8530c759f7d95ea41d49fd3c1596e452bdc7693d4bea0d47909`, salt `keccak256("bustline-v3.1-sp-enable")` = `0x2f2e4a04e8a04eaf31038a0c61aaa833e8ee735299e060bc15d09dc32ef19f3b`, schedule tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`. Execute tx `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` |
 
 Payload of op B (same as v3):
 `0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
@@ -80,7 +80,7 @@ Record any `unpause()` operation here too (schedule / execute txs, salt).
    `SP_OPS = "1"`, same secrets) and redeployed it (2026-11-07).
 4. Copied `deployments/testnet-v3.1.json` to `frontend/public/deployment.testnet.json`, rebuilt and redeployed the
    static site (2026-11-07).
-5. Scheduled op B (above) from the proposer. Execute after the delay: `TODO(execute tx)`.
+5. Scheduled op B (above) from the proposer. Executed after the delay: `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` (`spEnabled = true`).
 6. Still open: first v3.1 trades, including real-wallet runs of the funding routes from a non-deployer wallet.
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`

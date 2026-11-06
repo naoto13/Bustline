@@ -5,16 +5,18 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 
 ## [Unreleased]
 
-v3.1 deployed on Mezo testnet on 2026-11-07 (`deployments/testnet-v3.1.json`, addresses in
-[`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). Everything below is
-on-chain in v3.1 and live on the keeper Worker and https://bustline.planz.workers.dev; the tag follows.
-
 Still to do before the Wave 2 deadline (2026-11-15):
 
-- Execute timelock op B on v3.1 (enable the Stability Pool; scheduled 2026-11-07, executes after the 1-hour delay).
 - First v3.1 trades, including real-wallet runs of all three funding routes (Passport BTC wallet and an EVM wallet) from
   a non-deployer wallet.
+- Switch the active oracle to the Pyth pull oracle (needs a Pyth Hermes API key and one timelock operation).
 - Demo video recorded on v3.1.
+
+## [v3.1-wave2] — 2026-11-07 — Emergency pause, protocol revenue, review fixes
+
+v3.1 deployed on Mezo testnet on 2026-11-07 (`deployments/testnet-v3.1.json`, addresses in
+[`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). Everything below is
+on-chain in v3.1 and live on the keeper Worker and https://bustline.planz.workers.dev.
 
 ### Added
 
@@ -44,11 +46,15 @@ Still to do before the Wave 2 deadline (2026-11-15):
 - From the 2026-11-07 review: a winner who cannot be paid in full on the spot is no longer charged any fee. The whole
   gain is owed; what the house can pay now is paid and the rest is queued (before, only the after-fee amount was queued
   and the difference silently stayed in the house; the v3 win fee had the same issue).
+- Also from the 2026-11-07 review: the treasury can no longer be the exchange itself, and the v3.1 deploy script
+  refuses a timelock delay below 1 hour.
 
 ### Changed
 
 - v3.1 deployed on Mezo testnet (2026-11-07) as a fresh set with a new TimelockController and a new RebateToken; all
   six contracts verified on the explorer. Guardian and treasury are the deployer address.
+- Stability Pool enabled on v3.1 through the timelock (`setSpParams`, executed 2026-11-07, tx
+  `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd`).
 - Keeper Worker and production frontend switched from v3 to v3.1. v3 (2026-11-06) is retired; no trade ever happened on
   it.
 
@@ -95,6 +101,7 @@ Still to do before the Wave 2 deadline (2026-11-15):
 - Testnet deployment (v1 Skip market, v2 signed-oracle market, crash-demo market) and a live liquidation.
 - Unit/fuzz and fork tests against real Mezo testnet MUSD.
 
-[Unreleased]: https://github.com/naoto13/Bustline/compare/v3-wave2...HEAD
+[Unreleased]: https://github.com/naoto13/Bustline/compare/v3.1-wave2...HEAD
+[v3.1-wave2]: https://github.com/naoto13/Bustline/compare/v3-wave2...v3.1-wave2
 [v3-wave2]: https://github.com/naoto13/Bustline/compare/v2-wave1...v3-wave2
 [v2-wave1]: https://github.com/naoto13/Bustline/releases/tag/v2-wave1

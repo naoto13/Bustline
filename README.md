@@ -58,7 +58,7 @@ RebateToken = the TimelockController (1-hour delay). Guardian (can pause) and tr
 
 RebateToken v3.1 is a new token: **MPAPER balances and stakes from earlier markets are not carried over.** The
 Stability Pool is switched off at deploy; enabling it (`setSpParams`, timelock op B) was scheduled on 2026-11-07 and
-executes after the 1-hour delay (execute tx: `TODO(execute tx)`). No trades have happened on v3.1 yet.
+executed after the 1-hour delay (execute tx `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd`). No trades have happened on v3.1 yet.
 
 **v3** (2026-11-06, `deployments/testnet-v3.json`, HouseExchange `0x5082…9F58`) is retired: it never had a trade and
 the keeper and frontend moved to v3.1, which also carries the review fixes and the pause / protocol fee.
@@ -80,7 +80,7 @@ the v2 live-liquidation proof and the earlier v1 markets: [`docs/DEPLOYMENTS.md`
 
 | Wave 2 (v3.1) component | Status |
 |---|---|
-| HouseExchange v3.1 (Stability Pool, guardian pause, 1% protocol fee), RebateStaking (MUSD + BTC rewards), MUSD PriceFeed bound, TimelockController, new RebateToken | **Deployed 2026-11-07** ([addresses](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). All six contracts verified on the explorer. Stability Pool enable (`setSpParams`) scheduled in the timelock, executes after the 1-hour delay. Replaces v3 (deployed 2026-11-06, Stability Pool enabled through the timelock the same day, never traded, now retired) |
+| HouseExchange v3.1 (Stability Pool, guardian pause, 1% protocol fee), RebateStaking (MUSD + BTC rewards), MUSD PriceFeed bound, TimelockController, new RebateToken | **Deployed 2026-11-07** ([addresses](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). All six contracts verified on the explorer. Stability Pool enabled through the timelock (`setSpParams`, 2026-11-07). Replaces v3 (deployed 2026-11-06, Stability Pool enabled through the timelock the same day, never traded, now retired) |
 | Keeper-worker v3.1 support (`rebalance` / `forwardBtc`, pause handling, configurable addresses, separate price-signer key) | **Live**: the Worker runs on v3.1 with `SP_OPS = "1"` (2026-11-07) |
 | Production frontend (incl. house assets & fees panel, BTC rewards in the MPAPER tab, paused banner) | **Live on v3.1** at https://bustline.planz.workers.dev (2026-11-07) |
 | "Start with BTC" / "From my trove" funding routes in the frontend | **Live on the site** (since 2026-11-06, now on v3.1). Read-only views checked on testnet; the signed flows (`openTrove`, `withdrawMUSD`, `repayMUSD`) are not yet verified with real wallets |
@@ -277,7 +277,7 @@ Per-wave details and tags: [CHANGELOG.md](CHANGELOG.md).
 | Wave | Dates | Shipped |
 |---|---|---|
 | Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper and its Cloudflare Worker port, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
-| Wave 2 | Nov 2–15, 2026 | **v3.1 live on testnet (2026-11-07)**, after v3 (2026-11-06, retired without trades). Done: MUSD PriceFeed price bound, HouseExchange with Stability Pool deposits and BTC rewards to MPAPER stakers, TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), guardian emergency pause (unpause only via the timelock), 1% protocol fee to a treasury, fixes from an independent review, keeper Worker and production frontend on v3.1, all six v3.1 contracts verified, "Start with BTC" / "From my trove" funding routes, pnpm migration; 103 unit/fuzz + 46 fork + 6 keeper Worker + 23 Python keeper tests. Remaining: Stability Pool enable on v3.1 (timelock op B scheduled, executes after the 1-hour delay), first v3.1 trades, real-wallet runs of all three funding routes from a non-deployer wallet ([runbook](docs/DEPLOYMENTS.md#v31-runbook-as-executed)) |
+| Wave 2 | Nov 2–15, 2026 | **v3.1 live on testnet (2026-11-07)**, after v3 (2026-11-06, retired without trades). Done: MUSD PriceFeed price bound, HouseExchange with Stability Pool deposits and BTC rewards to MPAPER stakers, TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), guardian emergency pause (unpause only via the timelock), 1% protocol fee to a treasury, fixes from an independent review, keeper Worker and production frontend on v3.1, all six v3.1 contracts verified, "Start with BTC" / "From my trove" funding routes, pnpm migration; 103 unit/fuzz + 46 fork + 6 keeper Worker + 23 Python keeper tests. Stability Pool enabled on v3.1 through the timelock (2026-11-07). Remaining: first v3.1 trades, real-wallet runs of all three funding routes from a non-deployer wallet ([runbook](docs/DEPLOYMENTS.md#v31-runbook-as-executed)) |
 
 ## Team
 
