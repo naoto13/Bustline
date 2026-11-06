@@ -68,7 +68,7 @@
 - [x] テスト件数を README に反映する → 2026-11-06: Foundry 単体・ファジング 80、fork 44、keeper 23
 - [x] 独立レビュー（on-chain、金額計算に当たるので必須） → 2026-11-06 Codex（gpt-5.6-terra）で2回。1回目 fail（`claim()` が BTC を受け取れない staker で MUSD ごと revert、`sweepExcess()` が `spMinLiquid` を割る）→ 両方修正し回帰テストを追加（85 件）。2回目は sweep 解消、残り major 1 件は backlog
 - [ ] backlog: `claim()` の BTC 送金先がガスを使い切ると tx 全体が revert する（2回目のレビューの major）。被害は受取側の staker 本人だけで、`claimBtcTo` で逃がせる。固定 stipend は proxy 型ウォレットを壊すため見送り。必要なら上限付きガス（例 50k）を検討
-- [ ] 修正後のコントラクトの再デプロイ（v3 は 2026-11-06 時点のコードのまま）
+- [x] 修正後のコントラクトの再デプロイ（v3 は 2026-11-06 時点のコードのまま） → 2026-11-07 に v3.1 として新しくデプロイした（修正を含む）
 
 ## v3.1: 緊急停止とプロトコル手数料（spec 5.5）
 
@@ -76,8 +76,12 @@
 - [x] HouseExchange: `protocolFeeBps`（1%）と `treasury`、勝ちの決済でその場で送る。`previewClose` も変更
 - [x] 単体テストとファジングの会計確認 → `test/PauseAndProtocolFee.t.sol`（16 件）、`test/Timelock.t.sol`（1 件追加）、`testFuzz_randomTradingKeepsAccounting` に手数料の確認を追加
 - [x] デプロイスクリプト `script/DeployTestnetV3_1.s.sol`（testnet での dry-run 成功、broadcast はしていない）と fork テスト
-- [ ] 独立レビュー（金額計算に当たるので必須）
-- [ ] testnet へのデプロイ、エクスプローラでの検証、`deployments/testnet-v3.1.json` の記録
+- [x] 独立レビュー（金額計算に当たるので必須） → 2026-11-07 Codex（gpt-5.6-terra）で2回。1回目 fail（キュー/一部支払いで手数料を引いたまま誰にも渡らない、treasury に自分自身を設定できる、TIMELOCK_DELAY を 0 にできる）→ 3件修正。2回目は3件とも解消、新たな major 1件（コンストラクタで owner_ = 自アドレスを渡せる）を1行の検査とテストで対応（103 件）。反復上限のため再レビューはせず
+- [x] testnet へのデプロイ、エクスプローラでの検証、`deployments/testnet-v3.1.json` の記録 → 2026-11-07 03:48 JST、22 tx（block 16615295〜16615316）。HouseExchange v3.1 `0x3c58…0cF7`、timelock `0x115b…f1C4`。owner = timelock、guardian と treasury = デプロイヤー、`protocolFeeBps` 100、`paused` false をオンチェーンで確認。6 コントラクトとも Blockscout で検証済み（同じバイトコードの再デプロイは「verified twin」と表示されるが `is_verified` は false のため、`--skip-is-verified-check` で検証した）
+- [x] keeper Worker を v3.1 に切り替える（`EXCHANGE_ADDRESS`・`ORACLE_ADDRESS`）→ 2026-11-07 に再デプロイ、v3.1 のオラクルへ価格を送っている
+- [x] 本番フロントを v3.1 に切り替える（`frontend/public/deployment.testnet.json` = `deployments/testnet-v3.1.json` のコピー）→ 2026-11-07
+- [ ] timelock 操作 B（`setSpParams(true, 50e18, 5000, 2000)`）の execute → schedule 済み（2026-11-07 03:51 JST、tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`、id `0x77cc…7909`）。04:52 JST 以降に execute する。execute tx: `TODO(execute tx)`
+- [ ] v3.1 での最初の取引（デプロイヤー以外のウォレット、3経路の実ウォレット確認を含む。2026-11-07 時点で v3.1 の取引は 0 件）
 - [x] ABI の再生成（`scripts/export-abi.sh`）
-- [ ] フロント（「2% win fee」の表示）、keeper（ABI、停止中の扱い）、README・docs の更新
+- [x] フロント（「2% win fee」の表示）、keeper（ABI、停止中の扱い）、README・docs の更新 → コードは 2026-11-07 のコミット `42ac738`、デプロイ後の README・CHANGELOG・docs の同期は 2026-11-07
 

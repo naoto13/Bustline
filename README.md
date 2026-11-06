@@ -4,7 +4,7 @@
 
 > **Testnet demo, unaudited.** Runs on Mezo testnet (chainId `31611`) only. Up to 100x leverage — losses can be total.
 
-- **Live app:** https://bustline.planz.workers.dev (Mezo testnet v3, connect with Mezo Passport). The Wave 1 URL
+- **Live app:** https://bustline.planz.workers.dev (Mezo testnet v3.1, connect with Mezo Passport). The Wave 1 URL
   (bustline-c8p.pages.dev) showed the frozen v2 market and is being retired.
 - **Contracts & on-chain proof:** [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md)
 - **Demo video:** _TBD_
@@ -17,9 +17,9 @@
 |---|---|
 | Track | **DeFi** — leveraged trading with MUSD margin, MUSD yield for stakers |
 | Integrates MUSD | Margin, house cash, payout queue and staker revenue are all MUSD (real testnet MUSD from a Trove) |
-| Working deployment | v3 contracts live on **Mezo testnet** behind a timelock, keeper Worker running on v3; frontend at https://bustline.planz.workers.dev (reads v3) |
+| Working deployment | v3.1 contracts live on **Mezo testnet** behind a timelock (deployed and verified 2026-11-07), keeper Worker running on v3.1; frontend at https://bustline.planz.workers.dev (reads v3.1) |
 | Mezo-native stack | Mezo Passport for wallets; prices are keeper-signed and must stay within ±1% of Mezo's MUSD PriceFeed (sourced from Skip Connect); Mezo Pyth pull oracle deployed and verified, switch planned |
-| Evidence it works | A real 100x liquidation on testnet driven by the live price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 80 Foundry unit/fuzz + 44 fork tests (against real Mezo testnet state) + 23 keeper tests |
+| Evidence it works | A real 100x liquidation on testnet driven by the live price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 103 Foundry unit/fuzz + 46 fork tests (against real Mezo testnet state) + 6 keeper Worker tests + 23 Python keeper tests |
 
 ## Try it in 3 minutes
 
@@ -42,22 +42,26 @@ repaying the queue, MPAPER staking — on a local fork ([recorded output](docs/d
 
 ## Deployed contracts (Mezo testnet, chainId 31611)
 
-v3 (Wave 2), deployed 2026-11-06 — `deployments/testnet-v3.json`. Owner of HouseExchange, both oracles and the
-RebateToken = the TimelockController (1-hour delay).
+v3.1 (Wave 2), deployed 2026-11-07 — `deployments/testnet-v3.1.json`. Owner of HouseExchange, both oracles and the
+RebateToken = the TimelockController (1-hour delay). Guardian (can pause) and treasury (receives the 1% protocol fee)
+= the deployer address. All six contracts are verified on the explorer.
 
 | Contract | Address |
 |---|---|
-| HouseExchange v3 | [`0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58`](https://explorer.test.mezo.org/address/0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58) |
-| SignedPriceOracle (active) | [`0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0`](https://explorer.test.mezo.org/address/0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0) |
-| PythPullOracle (switch-ready) | [`0xC6cCeb1EAB44B81587A2713c70C17CB839aa34a0`](https://explorer.test.mezo.org/address/0xC6cCeb1EAB44B81587A2713c70C17CB839aa34a0) |
-| RebateToken v3 — Mezo Paper (`MPAPER`) | [`0x8627486B8f49191E492d94d44DF153Cc5983fd9B`](https://explorer.test.mezo.org/address/0x8627486B8f49191E492d94d44DF153Cc5983fd9B) |
-| RebateStaking v3 | [`0x7EA0bdE3a2221cfdB40623D7EAdB9fCe683D683D`](https://explorer.test.mezo.org/address/0x7EA0bdE3a2221cfdB40623D7EAdB9fCe683D683D) |
-| TimelockController | [`0x5837370bC22766abb1754bb41C55e2b969288d90`](https://explorer.test.mezo.org/address/0x5837370bC22766abb1754bb41C55e2b969288d90) |
+| HouseExchange v3.1 | [`0x3c58314cd5710893519E5d962F553633ECC60cF7`](https://explorer.test.mezo.org/address/0x3c58314cd5710893519E5d962F553633ECC60cF7) |
+| SignedPriceOracle (active) | [`0x75a3071482883d9616bf0473B7eE25B4222b181F`](https://explorer.test.mezo.org/address/0x75a3071482883d9616bf0473B7eE25B4222b181F) |
+| PythPullOracle (switch-ready) | [`0xf05B4108B93A83a1a87Ba1E392a81226aAC63619`](https://explorer.test.mezo.org/address/0xf05B4108B93A83a1a87Ba1E392a81226aAC63619) |
+| RebateToken v3.1 — Mezo Paper (`MPAPER`) | [`0xDACD4786EDCBB626BA95805E204FD18815a389D0`](https://explorer.test.mezo.org/address/0xDACD4786EDCBB626BA95805E204FD18815a389D0) |
+| RebateStaking v3.1 | [`0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98`](https://explorer.test.mezo.org/address/0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98) |
+| TimelockController | [`0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4`](https://explorer.test.mezo.org/address/0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4) |
 | MUSD (Mezo) | [`0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`](https://explorer.test.mezo.org/address/0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503) |
 
-RebateToken v3 is a new token: **MPAPER balances and stakes from v2 are not carried over.** The Stability Pool is
-switched off at deploy; enabling it (`setSpParams`) is scheduled in the timelock and executed after the delay.
+RebateToken v3.1 is a new token: **MPAPER balances and stakes from earlier markets are not carried over.** The
+Stability Pool is switched off at deploy; enabling it (`setSpParams`, timelock op B) was scheduled on 2026-11-07 and
+executes after the 1-hour delay (execute tx: `TODO(execute tx)`). No trades have happened on v3.1 yet.
 
+**v3** (2026-11-06, `deployments/testnet-v3.json`, HouseExchange `0x5082…9F58`) is retired: it never had a trade and
+the keeper and frontend moved to v3.1, which also carries the review fixes and the pause / protocol fee.
 The **v2 market** (Wave 1, `deployments/testnet.json`, HouseExchange `0x5e94…2050`) is frozen as a record: its
 owner/keeper key was lost, so it is no longer operated and its open position stays as is. Deploy txs, keys and roles,
 the v2 live-liquidation proof and the earlier v1 markets: [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md).
@@ -66,20 +70,20 @@ the v2 live-liquidation proof and the earlier v1 markets: [`docs/DEPLOYMENTS.md`
 
 | Component | Status |
 |---|---|
-| Exchange, house, payout queue, MPAPER, staking | **Live** on Mezo testnet with real MUSD (v3) |
+| Exchange, house, payout queue, MPAPER, staking | **Live** on Mezo testnet with real MUSD (v3.1; no trades on it yet) |
 | Price feed | **Live — keeper-signed** median of Coinbase / Kraken / Bitstamp, enforced on-chain to stay within ±1% of Skip Connect |
 | Pyth pull oracle | **Deployed, not active.** Verified against Mezo testnet Pyth with a real mainnet-signed update; activating needs a Pyth Hermes API key + one `setOracle` tx |
-| Keeper | **Live** as a Cloudflare Worker (cron every minute, 15 s ticks; [health](https://bustline-keeper.planz.workers.dev/health)). Points at v3 with `SP_OPS = "1"`; separate keeper and price-signer keys. Single permissioned operator run by the team (fills, liquidations, price pushes, queue harvest, `rebalance` / `forwardBtc`) |
+| Keeper | **Live** as a Cloudflare Worker (cron every minute, 15 s ticks; [health](https://bustline-keeper.planz.workers.dev/health)). Points at v3.1 with `SP_OPS = "1"` and skips fills / liquidations while paused; separate keeper and price-signer keys. Single permissioned operator run by the team (fills, liquidations, price pushes, queue harvest, `rebalance` / `forwardBtc`) |
 | Crash-demo market (`deployments/testnet-demo.json`) | **Mocked price** — a separate, labelled market with a `MockOracle` so crashes can be shown on demand |
 | Local fork (`dev-fork.sh`, `demo.sh`) | Real MUSD bytecode, **mocked price** (anvil can't run Mezo's Skip precompile) |
 | Chart on the trade screen | Display only — Coinbase public candles; settlement uses the on-chain price |
 
-| Wave 2 (v3) component | Status |
+| Wave 2 (v3.1) component | Status |
 |---|---|
-| HouseExchange v3 (Stability Pool), RebateStaking v3 (MUSD + BTC rewards), MUSD PriceFeed bound, TimelockController, new RebateToken | **Deployed 2026-11-06** ([addresses](docs/DEPLOYMENTS.md#v3-wave-2-current--deploymentstestnet-v3json)). Stability Pool enabled through the timelock (`setSpParams`, 2026-11-06). All six contracts verified on the explorer |
-| Keeper-worker v3 support (`rebalance` / `forwardBtc`, configurable addresses, separate price-signer key) | **Live**: the Worker was redeployed on v3 with `SP_OPS = "1"` and new keeper / price-signer keys |
-| Production frontend | **Live on v3** at https://bustline.planz.workers.dev (2026-11-06) |
-| "Start with BTC" / "From my trove" funding routes in the frontend | **Live on the v3 site (2026-11-06).** Read-only views checked on testnet; the signed flows (`openTrove`, `withdrawMUSD`, `repayMUSD`) are not yet verified with real wallets |
+| HouseExchange v3.1 (Stability Pool, guardian pause, 1% protocol fee), RebateStaking (MUSD + BTC rewards), MUSD PriceFeed bound, TimelockController, new RebateToken | **Deployed 2026-11-07** ([addresses](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). All six contracts verified on the explorer. Stability Pool enable (`setSpParams`) scheduled in the timelock, executes after the 1-hour delay. Replaces v3 (deployed 2026-11-06, Stability Pool enabled through the timelock the same day, never traded, now retired) |
+| Keeper-worker v3.1 support (`rebalance` / `forwardBtc`, pause handling, configurable addresses, separate price-signer key) | **Live**: the Worker runs on v3.1 with `SP_OPS = "1"` (2026-11-07) |
+| Production frontend (incl. house assets & fees panel, BTC rewards in the MPAPER tab, paused banner) | **Live on v3.1** at https://bustline.planz.workers.dev (2026-11-07) |
+| "Start with BTC" / "From my trove" funding routes in the frontend | **Live on the site** (since 2026-11-06, now on v3.1). Read-only views checked on testnet; the signed flows (`openTrove`, `withdrawMUSD`, `repayMUSD`) are not yet verified with real wallets |
 
 ## What it is
 
@@ -107,12 +111,12 @@ is queued, so house equity (`houseCash − queueTotal`) may go negative while th
 | **Skip Connect as a guard rail** | Every price must be within **±1% of Skip Connect BTC/USD**, Mezo's native oracle. |
 | **Oracle-timing safety** | Mezo's Velar PerpDEX was drained via oracle-update timing ([post-mortem](https://mezo.org/blog/velars-perpdex-exploited-on-mezo/)). Bustline makes every open/close **2-step**, so no one can trade against a price they have already seen (below). |
 
-### Wave 2 (v3 deployed on testnet)
+### Wave 2 (v3.1 live on testnet)
 
-The v3 contracts below are deployed on Mezo testnet (2026-11-06) and tested (unit, fuzz and fork tests against real
-Mezo testnet state). The production frontend reads v3.
+The Wave 2 contracts below run on Mezo testnet as v3.1 (deployed 2026-11-07; first deployed as v3 on 2026-11-06) and
+are tested (unit, fuzz and fork tests against real Mezo testnet state). The production frontend reads v3.1.
 
-| Mezo primitive | How v3 uses it |
+| Mezo primitive | How v3 / v3.1 use it |
 |---|---|
 | **MUSD `PriceFeed` as the price bound** | `MezoPriceBound` replaces the Skip bound: every signed / Pyth price must be within ±1% of `PriceFeed.fetchPrice()`. If the PriceFeed reverts (e.g. no update for 60 s), the bound is skipped with a `PriceBoundSkipped` event, so fills and liquidations never stop. |
 | **Stability Pool for idle house cash** | `rebalance()` (anyone; the keeper calls it) deposits house cash above `spMinLiquid` into the MUSD Stability Pool, capped at `spMaxShareBps` of house assets, and withdraws when cash runs low. Winners are paid from cash, then topped up from the pool, then the FIFO queue. Margin and escrow never go into the pool. Disabled at deploy; enabling it is scheduled in the timelock. |
@@ -180,10 +184,10 @@ oracle's own staleness check still applies.
 |---|---|
 | `src/` | `HouseExchange`, `RebateToken` (MPAPER), `RebateStaking`, `libraries/ImpactLib`, `oracles/` (Pyth pull, signed, Skip bound, MUSD PriceFeed bound `MezoPriceBound`), `interfaces/IMezo.sol` (Mezo MUSD protocol), mocks |
 | `test/` | Unit + fuzz (`HouseExchange.t.sol`, `Oracles.t.sol`, `MezoPriceBound.t.sol`, `StabilityPool.t.sol`, `RebateStakingV3.t.sol`, `Timelock.t.sol`; Mezo mocks in `test/mocks/`); fork suites against real testnet MUSD, Mezo Pyth with a mainnet-signed update, and the real PriceFeed / Stability Pool / BorrowerOperations (`test/fork/`) |
-| `script/` | `DeployLocal` (anvil), `DeployTestnet` (v2, `ORACLE_MODE=signed\|pyth`), `DeployTestnetV3` (Wave 2: timelock + new RebateToken + v3, broadcast 2026-11-06), `DeployTestnetDemo` (mock-oracle crash-demo market) |
+| `script/` | `DeployLocal` (anvil), `DeployTestnet` (v2, `ORACLE_MODE=signed\|pyth`), `DeployTestnetV3` (Wave 2: timelock + new RebateToken + v3, broadcast 2026-11-06, retired), `DeployTestnetV3_1` (v3.1: + guardian pause and protocol fee, broadcast 2026-11-07, live), `DeployTestnetDemo` (mock-oracle crash-demo market) |
 | `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh`, `list-events.py` |
 | `keeper-worker/` | Live keeper on Cloudflare Workers (TypeScript + viem port of the Python keeper, `/health` endpoint) |
-| `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts; v2-only — its ABI in `keeper/abi` has no v3 functions, and v2 is frozen) + testnet operator CLI |
+| `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts; v2-only — it never calls the v3 / v3.1 functions, even though `keeper/abi` was regenerated for v3.1, and v2 is frozen) + testnet operator CLI |
 | `frontend/` | Next.js 14 + Mezo Passport: trade screen with bust lines, positions, house & payout queue, MPAPER staking; Wave 2 trove funding routes (`components/Funding.tsx`, `lib/mezo.ts`) |
 | `docs/` | [`DEPLOYMENTS.md`](docs/DEPLOYMENTS.md) (addresses + on-chain events), [`OPERATIONS.md`](docs/OPERATIONS.md) (deploy & run), `demo/` (recorded outputs) |
 
@@ -195,12 +199,13 @@ Requires [Foundry](https://book.getfoundry.sh/), Python 3, Node 18+ and [pnpm](h
 ```bash
 git clone --recurse-submodules https://github.com/naoto13/Bustline.git && cd Bustline
 
-forge test                                                  # unit + fuzz: 80 tests (fork suites auto-skip)
-MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   # 44 fork tests against real Mezo testnet state (read-only)
+forge test --no-match-path 'test/fork/**'                   # unit + fuzz: 103 tests
+MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   # 46 fork tests against real Mezo testnet state (read-only)
 
 ./scripts/dev-fork.sh                                       # anvil fork of Mezo testnet + deploy (unlocked anvil accounts, no keys)
 ./scripts/demo.sh                                           # crash/volatility demo → docs/demo/crash-demo-output.txt
-(cd keeper && python3 -m unittest discover -s tests)        # 23 keeper tests
+(cd keeper && python3 -m unittest discover -s tests)        # 23 Python keeper tests
+(cd keeper-worker && pnpm install --frozen-lockfile && pnpm test)   # 6 keeper Worker tests (pause handling)
 (cd keeper && python3 -m perp_keeper --execute-local --simulate-oracle)   # keeper loop on the local fork
 (cd frontend && pnpm install --frozen-lockfile && pnpm build && pnpm start)  # http://localhost:3100
 ```
@@ -215,9 +220,9 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 
 - **Unaudited hackathon build.** Single market, isolated margin, no partial closes, no session keys or relayer.
 - **Admin powers.** The owner can switch the oracle, whitelist keepers, change risk/fee/impact/mint-curve parameters,
-  rotate the price signer and enable MPAPER transfers. On v3 every one of these goes through the timelock. On the
+  rotate the price signer and enable MPAPER transfers. On v3.1 (and v3) every one of these goes through the timelock. On the
   frozen v2 market the owner, keeper and price signer were one EOA.
-- **Timelock and key separation (v3).** v3 puts HouseExchange, both oracles and the RebateToken under an
+- **Timelock and key separation (v3 / v3.1).** v3.1 puts HouseExchange, both oracles and the RebateToken under an
   OpenZeppelin `TimelockController` (testnet delay **1 hour**; mainnet should use 48 h or more). Proposer/canceller is
   the deployer; anyone can execute a ready operation. The owner (timelock proposer), keeper and price signer are three
   different keys, so a leaked keeper key cannot call owner functions. Production would still need a multisig proposer.
@@ -226,9 +231,9 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
   `sweepExcess` and Stability Pool deposits revert / are skipped; `requestClose` (filled after unpause),
   `cancelExpired`, `harvest`, pool withdrawals, `forwardBtc`, price pushes and staking keep working. v2 and v3 have no
   pause. Runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#5-emergency-pause-v31).
-- **Stability Pool risk (v3).** Liquidations of troves below 100% ICR shrink the house's pool deposit (shown as a house
+- **Stability Pool risk (v3.1).** Liquidations of troves below 100% ICR shrink the house's pool deposit (shown as a house
   loss in `houseEquity`). Pool withdrawals are blocked while the lowest-ICR trove is below MCR (110%) or the PriceFeed is
-  down — typically during a BTC crash, when shorts are winning. v3 keeps `spMinLiquid` in cash, caps the pool share,
+  down — typically during a BTC crash, when shorts are winning. v3.1 keeps `spMinLiquid` in cash, caps the pool share,
   never deposits while withdrawals are blocked, and queues any unpaid profit FIFO. On Mezo testnet the lowest trove was
   at ≈109.3% ICR (below MCR) on 2026-11-02, so pool withdrawals were blocked then; by 2026-11-06 it was back at
   ≈113%. The state moves with the BTC price.
@@ -236,10 +241,10 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
   send one call per signature (no batching, no `signTypedData`), so "Start with BTC" is `openTrove` → `approve` (first
   time only) → `requestOpen`. If a later step fails, the borrowed MUSD stays in the trader's wallet and the flow resumes
   from that step (checked read-only so far, not yet with real signed transactions).
-- **Python keeper is legacy / v2-only.** `keeper/` (and its ABI in `keeper/abi`) has no v3 functions (`rebalance`, `forwardBtc`,
+- **Python keeper is legacy / v2-only.** `keeper/` has no code for the v3 functions (`rebalance`, `forwardBtc`,
   Stability Pool views), does not know the v3.1 pause, and defaults to `deployments/testnet.json` (frozen v2). Only the
   Cloudflare Worker keeper supports v3 / v3.1, so there is no working fallback keeper today.
-- The v3 testnet market uses the keeper-signed oracle until a Pyth Hermes API key is configured; the Pyth path is
+- The v3.1 testnet market uses the keeper-signed oracle until a Pyth Hermes API key is configured; the Pyth path is
   deployed and tested.
 - The keeper set is permissioned (owner whitelist) so traders can't time their own fills; expired orders are refundable.
 - Skip on Mezo testnet returns `answeredInRound = 0`, so the Skip adapter relies on `updatedAt` freshness only.
@@ -272,7 +277,7 @@ Per-wave details and tags: [CHANGELOG.md](CHANGELOG.md).
 | Wave | Dates | Shipped |
 |---|---|---|
 | Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper and its Cloudflare Worker port, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
-| Wave 2 | Nov 2–15, 2026 | **v3 deployed on testnet (2026-11-06).** Done: MUSD PriceFeed price bound, HouseExchange v3 with Stability Pool deposits and BTC rewards to MPAPER stakers (RebateStaking v3), TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), v3 testnet deployment, keeper Worker redeployed on v3, Stability Pool enabled through the timelock, "Start with BTC" / "From my trove" funding routes, pnpm migration; 80 unit/fuzz + 44 fork + 23 keeper tests. Production frontend switched to v3. Remaining: real-wallet runs of all three funding routes ([runbook](docs/DEPLOYMENTS.md#runbook-as-executed)) |
+| Wave 2 | Nov 2–15, 2026 | **v3.1 live on testnet (2026-11-07)**, after v3 (2026-11-06, retired without trades). Done: MUSD PriceFeed price bound, HouseExchange with Stability Pool deposits and BTC rewards to MPAPER stakers, TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), guardian emergency pause (unpause only via the timelock), 1% protocol fee to a treasury, fixes from an independent review, keeper Worker and production frontend on v3.1, all six v3.1 contracts verified, "Start with BTC" / "From my trove" funding routes, pnpm migration; 103 unit/fuzz + 46 fork + 6 keeper Worker + 23 Python keeper tests. Remaining: Stability Pool enable on v3.1 (timelock op B scheduled, executes after the 1-hour delay), first v3.1 trades, real-wallet runs of all three funding routes from a non-deployer wallet ([runbook](docs/DEPLOYMENTS.md#v31-runbook-as-executed)) |
 
 ## Team
 

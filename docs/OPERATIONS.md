@@ -3,27 +3,29 @@
 Mezo testnet only (chainId `31611`, `https://rpc.test.mezo.org`). Addresses of the current deployment are in
 [`DEPLOYMENTS.md`](DEPLOYMENTS.md).
 
-**Current state (2026-11-06).** v3 (`deployments/testnet-v3.json`) is the live market and the keeper Worker runs on
-it. v2 (`deployments/testnet.json`) is frozen: its single owner/keeper/signer key was lost, so the v2 commands below
-are kept for reference only. The production frontend (https://bustline.planz.workers.dev) reads v3.
+**Current state (2026-11-07).** v3.1 (`deployments/testnet-v3.1.json`) is the live market; the keeper Worker and the
+production frontend (https://bustline.planz.workers.dev) both run on it. v3 (`deployments/testnet-v3.json`) is retired
+(it never had a trade). v2 (`deployments/testnet.json`) is frozen: its single owner/keeper/signer key was lost, so the
+v2 commands below are kept for reference only.
 
-**Key roles (v3).** Three different keys, all stored outside git (never committed, never printed):
+**Key roles (v3.1, same keys as v3).** Three different keys, all stored outside git (never committed, never printed):
 
 | Key | Address | Holds | Where it is used |
 |---|---|---|---|
-| Deployer = timelock proposer / canceller | `0xcDf4…8a21` | No direct ownership (the `TimelockController` owns HouseExchange, both oracles and the RebateToken) | `DeployTestnetV3` broadcast and timelock `schedule` / `cancel`. Read only from `MEZO_TESTNET_PRIVATE_KEY` |
-| Keeper | `0x8560…2a42` | `isKeeper` on HouseExchange v3, BTC for gas | Worker secret `KEEPER_PRIVATE_KEY` |
-| Price signer | `0x0BFf…2AEe` | `signer` of SignedPriceOracle v3; sends no txs | Worker secret `PRICE_SIGNER_PRIVATE_KEY` |
+| Deployer = timelock proposer / canceller = guardian = treasury | `0xcDf4…8a21` | No direct ownership (the `TimelockController` owns HouseExchange, both oracles and the RebateToken). As guardian it can `pause()` (not unpause); as treasury it receives the 1% protocol fee | `DeployTestnetV3_1` broadcast, timelock `schedule` / `cancel`, emergency `pause()`. Read only from `MEZO_TESTNET_PRIVATE_KEY` or a Foundry keystore |
+| Keeper | `0x8560…2a42` | `isKeeper` on HouseExchange v3.1, BTC for gas | Worker secret `KEEPER_PRIVATE_KEY` |
+| Price signer | `0x0BFf…2AEe` | `signer` of SignedPriceOracle v3.1; sends no txs | Worker secret `PRICE_SIGNER_PRIVATE_KEY` |
 
 Keys are read only from environment variables or Worker secrets — never passed on argv, never written to tracked
-files. Every write requires an explicit confirm flag. Owner actions on v3 (risk params, oracle switch, keeper list,
-`setSpParams`, MPAPER transfers) are timelock operations: `schedule` from the proposer, wait 1 hour, `execute` from any
-account. See [`DEPLOYMENTS.md`](DEPLOYMENTS.md#timelock-operations).
+files. Every write requires an explicit confirm flag. Owner actions on v3.1 (risk params, oracle switch, keeper list,
+`setSpParams`, `unpause`, MPAPER transfers) are timelock operations: `schedule` from the proposer, wait 1 hour, `execute` from any
+account. See [`DEPLOYMENTS.md`](DEPLOYMENTS.md#v31-timelock-operations).
 
 ## 1. Deploy contracts
 
-v3 (current): see the [runbook](DEPLOYMENTS.md#runbook-as-executed) — `script/DeployTestnetV3.s.sol` with
-`CONFIRM_TESTNET_DEPLOY=1`, `KEEPER=<addr>` and `PRICE_SIGNER=<addr>`.
+v3.1 (current): see the [runbook](DEPLOYMENTS.md#v31-runbook-as-executed) — `script/DeployTestnetV3_1.s.sol` with
+`CONFIRM_TESTNET_DEPLOY=1`, `KEEPER=<addr>` and `PRICE_SIGNER=<addr>` (optional `GUARDIAN`, `TREASURY`, default the
+deployer; `TIMELOCK_DELAY` ≥ 3600). v3 (retired) used `script/DeployTestnetV3.s.sol` the same way.
 
 v2 (frozen, for reference; `testnet_ops` reads `deployments/testnet.json` by default):
 
@@ -39,23 +41,41 @@ CONFIRM_TESTNET_DEPLOY=1 forge script script/DeployTestnetDemo.s.sol --rpc-url h
 
 Contract creation doesn't touch the Skip precompile, so forge's local simulation works for deploys.
 
+### Verify on the explorer
+
+All six v3.1 contracts were verified on Blockscout (https://explorer.test.mezo.org) on 2026-11-07.
+
+- **"Verified twin" pitfall.** When a contract is redeployed with bytecode identical to an already verified one,
+  Blockscout shows the new address as a verified twin, but its API still reports `is_verified` = false for it. Verify
+  the new address itself with `--skip-is-verified-check`, otherwise forge treats it as already verified and skips it:
+
+  ```bash
+  forge verify-contract <address> <path>:<ContractName> --chain 31611 \
+    --verifier blockscout --verifier-url https://api.explorer.test.mezo.org/api/ \
+    --constructor-args <abi-encoded-args> --skip-is-verified-check
+  ```
+
+- **zsh does not word-split variables.** `FLAGS="--verifier blockscout --verifier-url …"; forge verify-contract … $FLAGS`
+  passes the flags as one single argument in zsh. Write the flags out, use an array, or wrap the command in a shell
+  function (as the snippets below do).
+
 ## 2. Operator CLI (v2 only)
 
-`perp_keeper.testnet_ops` uses `keeper/abi` (no v3 functions) and defaults to `--deployment deployments/testnet.json`
+`perp_keeper.testnet_ops` uses `keeper/abi` but has no commands for the v3 / v3.1 functions and defaults to `--deployment deployments/testnet.json`
 (frozen v2). Calls that read Skip can't go through forge/cast (forge's local simulation hits `EvmError NotActivated` on the
 precompile, and cast only takes keys on argv), so a small Python signer is used instead.
 
 ```bash
 cd keeper && python3 -m venv .venv && .venv/bin/pip install eth-account==0.13.4
-OPS=".venv/bin/python -m perp_keeper.testnet_ops"
-$OPS status
-$OPS --confirm open-trove --coll-wei 45000000000000000 --debt 1800     # MUSD source (min net debt 1,800)
-$OPS --confirm open long 100 50                                          # approve + requestOpen
-$OPS --confirm push-price                                                # signed report (or Hermes update) → oracle
-$OPS --confirm keeper-once                                               # fill / liquidate / harvest (price update in the same tx)
-$OPS --confirm close 0
-$OPS --confirm stake-all && $OPS --confirm claim
-$OPS --deployment ../deployments/testnet-demo.json --confirm set-price 84000   # demo market only
+ops() { .venv/bin/python -m perp_keeper.testnet_ops "$@"; }   # a function, not a string variable (zsh does not word-split)
+ops status
+ops --confirm open-trove --coll-wei 45000000000000000 --debt 1800     # MUSD source (min net debt 1,800)
+ops --confirm open long 100 50                                          # approve + requestOpen
+ops --confirm push-price                                                # signed report (or Hermes update) → oracle
+ops --confirm keeper-once                                               # fill / liquidate / harvest (price update in the same tx)
+ops --confirm close 0
+ops --confirm stake-all && ops --confirm claim
+ops --deployment ../deployments/testnet-demo.json --confirm set-price 84000   # demo market only
 ```
 
 ## 3. Keeper
@@ -77,11 +97,11 @@ without Telegram.
 | Safety | Refuses any RPC host other than `rpc.test.mezo.org` and any chainId other than 31611 |
 | Health | `GET /health` → live on-chain price + age, open positions, pending orders, and the last run summary (tx hashes, per-tick results) from KV. No secrets |
 
-Configuration (`keeper-worker/wrangler.toml` `[vars]`): `EXCHANGE_ADDRESS` = HouseExchange v3, `ORACLE_ADDRESS` =
-SignedPriceOracle v3 (both from `deployments/testnet-v3.json`; required — there is no built-in fallback, and the Worker
+Configuration (`keeper-worker/wrangler.toml` `[vars]`): `EXCHANGE_ADDRESS` = HouseExchange v3.1, `ORACLE_ADDRESS` =
+SignedPriceOracle v3.1 (both from `deployments/testnet-v3.1.json`; required — there is no built-in fallback, and the Worker
 refuses to run if either is missing), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
 `SP_INTERVAL_SECONDS`). Secrets: `KEEPER_PRIVATE_KEY` sends the txs, `PRICE_SIGNER_PRIVATE_KEY` signs the price reports
-(two different keys). Redeployed on v3 2026-11-06.
+(two different keys). Redeployed on v3 2026-11-06 and switched to v3.1 on 2026-11-07.
 
 Signature / calldata / raw-tx encoding is checked byte-for-byte against the Python keeper:
 `node keeper-worker/test/sig.mjs` (public anvil key, never the keeper key) vs `perp_keeper.abi` + `eth_account`.
@@ -91,11 +111,11 @@ cd keeper-worker
 pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageManager pins pnpm@10.33.2)
 pnpm check                                              # tsc --noEmit
 pnpm test                                               # pause handling (node --test)
-W="pnpm dlx --package node@22 --package wrangler@latest wrangler"   # wrangler needs Node >= 22
-$W deploy
-printenv KEEPER_KEY | $W secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
-printenv PRICE_SIGNER_KEY | $W secret put PRICE_SIGNER_PRIVATE_KEY   # a different key from the keeper
-$W tail --format pretty                                               # watch ticks
+w() { pnpm dlx --package node@22 --package wrangler@latest wrangler "$@"; }   # wrangler needs Node >= 22
+w deploy
+printenv KEEPER_KEY | w secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
+printenv PRICE_SIGNER_KEY | w secret put PRICE_SIGNER_PRIVATE_KEY   # a different key from the keeper
+w tail --format pretty                                               # watch ticks
 curl -s https://bustline-keeper.planz.workers.dev/health
 ```
 
@@ -113,10 +133,10 @@ Workers Free limits:
   can be up to ~10 min old; the `live` block is always fresh.
 - Cron trigger changes can take a few minutes to start firing after the first deploy.
 
-### Python keeper (v2 only, not a fallback for v3)
+### Python keeper (v2 only, not a fallback for v3.1)
 
-The Python keeper has no v3 functions (`rebalance`, `forwardBtc`, Stability Pool views) and defaults to the frozen v2
-deployment, whose key was lost. It is kept for local forks and reference; it is **not** a working fallback for the v3
+The Python keeper has no code for the v3 functions (`rebalance`, `forwardBtc`, Stability Pool views) and defaults to the frozen v2
+deployment, whose key was lost. It is kept for local forks and reference; it is **not** a working fallback for the v3.1
 market.
 
 ```bash
@@ -130,12 +150,12 @@ The price source follows `"oracleMode"` in the deployment file: `signed` → kee
 ## 4. Frontend
 
 The frontend reads the gitignored `frontend/public/deployment.testnet.json` at runtime. The production site uses
-a copy of `deployments/testnet-v3.json`.
+a copy of `deployments/testnet-v3.1.json` (since 2026-11-07).
 
 Local, against a testnet deployment:
 
 ```bash
-cp deployments/testnet-v3.json frontend/public/deployment.testnet.json
+cp deployments/testnet-v3.1.json frontend/public/deployment.testnet.json
 cd frontend && pnpm install --frozen-lockfile && NEXT_PUBLIC_MODE=testnet pnpm build && pnpm start   # writes are signed by Mezo Passport
 ```
 
@@ -146,7 +166,7 @@ because wrangler otherwise reuses the account cached in `node_modules/.cache/wra
 ```bash
 cd frontend
 pnpm install --frozen-lockfile
-cp ../deployments/testnet-v3.json public/deployment.testnet.json
+cp ../deployments/testnet-v3.1.json public/deployment.testnet.json
 STATIC_EXPORT=1 NEXT_PUBLIC_MODE=testnet NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org pnpm exec next build
 pnpm dlx --package node@22 --package wrangler@latest wrangler deploy
 ```
@@ -184,7 +204,7 @@ The guardian key is set at deploy (`GUARDIAN`, default = the deployer; never the
 Foundry keystore (`cast wallet import`), which prompts for its password.
 
 ```bash
-EX=<HouseExchange v3.1>   # deployments/testnet-v3.1.json
+EX=0x3c58314cd5710893519E5d962F553633ECC60cF7   # HouseExchange v3.1 (deployments/testnet-v3.1.json)
 cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # false
 cast send $EX "pause()" --account <guardian-keystore> --rpc-url https://rpc.test.mezo.org
 cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # true
@@ -199,7 +219,7 @@ Use a **fresh salt** every time: a timelock operation id is `hash(target, value,
 salt of an earlier unpause would give an id that is already done and `schedule` would revert.
 
 ```bash
-TL=<TimelockController>   # deployments/testnet-v3.1.json "Timelock"
+TL=0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4   # TimelockController (deployments/testnet-v3.1.json "Timelock")
 SALT=$(cast keccak "bustline-v3.1-unpause-$(date -u +%Y%m%dT%H%M%S)")
 cast send $TL "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" \
   $EX 0 0x3f4ba83a 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT 3600 \
@@ -217,4 +237,4 @@ cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # fa
 
 After unpause the keeper logs `exchange unpaused` and fills the orders that were requested during the pause (a close
 that expired meanwhile is refundable with `cancelExpired`; its position stays open). Record the schedule / execute
-txs in [`DEPLOYMENTS.md`](DEPLOYMENTS.md#timelock-operations).
+txs in [`DEPLOYMENTS.md`](DEPLOYMENTS.md#v31-timelock-operations).

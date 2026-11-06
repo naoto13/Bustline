@@ -284,7 +284,7 @@ v3 のコードは変えずに残し、v3.1 として新しく一式をデプロ
 - [x] 停止の役割と止める／止めない関数の単体テスト → `test/PauseAndProtocolFee.t.sol`、`test/Timelock.t.sol` `test_guardianPausesImmediately_unpauseOnlyViaTimelock`
 - [x] 手数料の単体テスト（例の数値、ステーカーあり、キュー、一部支払い、SP 補充で両方の手数料を取る、SP 停止時の免除、手数料なしとの比較のファジング（SP あり／なし））と、ファジングの会計の確認
 - [x] fork: v3.1 のデプロイスクリプトと、実 MUSD での手数料 → `test/fork/WaveTwoFork.t.sol`
-- [ ] testnet に v3.1 をデプロイする（未実施）
+- [x] testnet に v3.1 をデプロイする → 2026-11-07（`deployments/testnet-v3.1.json`、22 tx、block 16615295〜16615316）。6 コントラクトをエクスプローラで検証済み。keeper Worker と本番フロントを v3.1 に切り替えた。操作 B は schedule 済みで、1時間後に execute する
 
 ## 6. v2 → v3 への移行
 

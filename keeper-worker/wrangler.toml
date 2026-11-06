@@ -17,10 +17,10 @@ RPC_URL = "https://rpc.test.mezo.org"
 TICK_SECONDS = "15"
 RUN_SECONDS = "46"
 HEARTBEAT_SECONDS = "300"
-# Contract addresses: v3 (deployments/testnet-v3.json). v2 (deployments/testnet.json) is frozen.
-EXCHANGE_ADDRESS = "0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58"
-ORACLE_ADDRESS = "0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0"
-# "1" only for HouseExchange v3 (rebalance / forwardBtc). At most one SP check per SP_INTERVAL_SECONDS.
+# Contract addresses: v3.1 (deployments/testnet-v3.1.json, 2026-11-07). v3 and v2 are retired.
+EXCHANGE_ADDRESS = "0x3c58314cd5710893519E5d962F553633ECC60cF7"
+ORACLE_ADDRESS = "0x75a3071482883d9616bf0473B7eE25B4222b181F"
+# "1" only for HouseExchange v3 / v3.1 (rebalance / forwardBtc). At most one SP check per SP_INTERVAL_SECONDS.
 SP_OPS = "1"
 SP_INTERVAL_SECONDS = "300"
 

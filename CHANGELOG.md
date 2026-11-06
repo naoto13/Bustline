@@ -5,24 +5,52 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 
 ## [Unreleased]
 
-Planned before the Wave 2 deadline (2026-11-15):
+v3.1 deployed on Mezo testnet on 2026-11-07 (`deployments/testnet-v3.1.json`, addresses in
+[`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-wave-2-current--deploymentstestnet-v31json)). Everything below is
+on-chain in v3.1 and live on the keeper Worker and https://bustline.planz.workers.dev; the tag follows.
 
-- Real-wallet runs of all three funding routes (Passport BTC wallet and an EVM wallet), from a non-deployer wallet.
-- Redeploy of the contract fixes below (they are not on-chain yet; v3 on testnet still runs the 2026-11-06 code).
-- Demo video recorded on v3.
+Still to do before the Wave 2 deadline (2026-11-15):
+
+- Execute timelock op B on v3.1 (enable the Stability Pool; scheduled 2026-11-07, executes after the 1-hour delay).
+- First v3.1 trades, including real-wallet runs of all three funding routes (Passport BTC wallet and an EVM wallet) from
+  a non-deployer wallet.
+- Demo video recorded on v3.1.
 
 ### Added
 
+- **Emergency pause** (`HouseExchange` v3.1): a `guardian` (or the owner) can `pause()` at once; only the owner (the
+  timelock) can `unpause()`, so resuming always waits the 1-hour delay. While paused, opens, fills, liquidations,
+  sweeps and Stability Pool deposits stop; close requests, refunds, queue harvest, pool withdrawals, price pushes and
+  staking keep working.
+- **Protocol fee**: 1% of a winner's impact-adjusted gain (`protocolFeeBps` = 100, capped at 5%) goes to a `treasury`
+  that funds the keeper's gas and price updates, on top of the 2% win fee to stakers. Taken only when the winner is paid
+  in full on the spot.
+- Frontend: house assets & fees panel (Stability Pool deposit, protocol fees), BTC rewards in the MPAPER tab, a
+  "TRADING PAUSED" banner that disables opening, and Docs sections on fees and governance (guardian, timelock).
+- Keeper Worker: reads `paused()` with each snapshot and, while paused, skips fills and liquidations but keeps price
+  pushes, harvest and `rebalance` / `forwardBtc` (6 tests, `pnpm test`).
 - In-app Docs page at `/docs` (how trades, funding routes, the house queue, MPAPER, oracles and governance work, plus
   live contract addresses); the header "Docs" link now opens it instead of GitHub. Header badge shows only TESTNET.
+- Tests: 103 unit/fuzz (incl. `test/PauseAndProtocolFee.t.sol`), 46 fork (incl. the v3.1 deploy script and the fee on
+  real MUSD), 6 keeper Worker, 23 Python keeper.
 
-### Fixed (in the repo, after an independent review of the Wave 2 contracts on 2026-11-06)
+### Fixed (deployed in v3.1)
 
-- `RebateStaking.claim()` no longer reverts when the staker cannot receive native BTC: MUSD is always paid, the BTC
-  stays owed (`BtcClaimFailed`), and the new `claimBtcTo(address)` sends it to another address.
-- `HouseExchange.sweepExcess()` no longer sweeps on-hand MUSD below `spMinLiquid` while the house has a Stability Pool
-  deposit, so winners can still be paid if Stability Pool withdrawals are blocked.
-- 5 regression tests added (85 unit/fuzz tests in total).
+- From an independent review of the Wave 2 contracts on 2026-11-06:
+  - `RebateStaking.claim()` no longer reverts when the staker cannot receive native BTC: MUSD is always paid, the BTC
+    stays owed (`BtcClaimFailed`), and the new `claimBtcTo(address)` sends it to another address.
+  - `HouseExchange.sweepExcess()` no longer sweeps on-hand MUSD below `spMinLiquid` while the house has a Stability
+    Pool deposit, so winners can still be paid if Stability Pool withdrawals are blocked.
+- From the 2026-11-07 review: a winner who cannot be paid in full on the spot is no longer charged any fee. The whole
+  gain is owed; what the house can pay now is paid and the rest is queued (before, only the after-fee amount was queued
+  and the difference silently stayed in the house; the v3 win fee had the same issue).
+
+### Changed
+
+- v3.1 deployed on Mezo testnet (2026-11-07) as a fresh set with a new TimelockController and a new RebateToken; all
+  six contracts verified on the explorer. Guardian and treasury are the deployer address.
+- Keeper Worker and production frontend switched from v3 to v3.1. v3 (2026-11-06) is retired; no trade ever happened on
+  it.
 
 ## [v3-wave2] — 2026-11-06 — Wave 2: Mezo-native integration on testnet
 

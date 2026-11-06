@@ -2,33 +2,91 @@
 
 RPC `https://rpc.test.mezo.org` · Explorer `https://explorer.test.mezo.org` · Frontend https://bustline.planz.workers.dev
 
-Unaudited demo. **Current state (2026-11-06):** the v3 contracts and the keeper Worker are live on v3. The production
-frontend reads v3 at https://bustline.planz.workers.dev (Cloudflare Workers static assets, 2026-11-06).
-All six v3 contracts are verified on the explorer (Blockscout, 2026-11-06).
+Unaudited demo. **Current state (2026-11-07):** v3.1 (`deployments/testnet-v3.1.json`) is the live market. The keeper
+Worker (https://bustline-keeper.planz.workers.dev) fills, liquidates and pushes prices on v3.1, and the production
+frontend at https://bustline.planz.workers.dev (Cloudflare Workers static assets) reads v3.1. All six v3.1 contracts
+are verified on the explorer (Blockscout, 2026-11-07). No trades have happened on v3.1 yet. v3 (2026-11-06) is
+retired (it never had a trade) and v2 is frozen; both are kept below as history.
 
-## v3.1 — pending deploy (`deployments/testnet-v3.1.json`)
+## v3.1 (Wave 2, current) — `deployments/testnet-v3.1.json`
 
-**Not deployed yet.** No addresses until the broadcast has happened and been checked against
-`broadcast/DeployTestnetV3_1.s.sol/31611/run-latest.json`.
+Deployed 2026-11-07 (≈03:48 JST) by `script/DeployTestnetV3_1.s.sol` in one broadcast (22 txs, blocks
+16615295–16615316; `broadcast/DeployTestnetV3_1.s.sol/31611/run-latest.json`). Same design as v3 plus an emergency
+pause (`guardian` can `pause()`, only the timelock can `unpause()`) and a 1% protocol fee on winning profit to
+`treasury` (`protocolFeeBps` = 100). It is a fresh, independent set: it also contains the 2026-11-06 review fixes
+that v3 did not have. Owner of HouseExchange v3.1, both oracles and the RebateToken is the `TimelockController`.
+Pause / resume runbook: [`OPERATIONS.md`](OPERATIONS.md#5-emergency-pause-v31).
 
-What changes from v3: emergency pause (`guardian` can `pause()`, only the timelock can `unpause()`) and a 1% protocol
-fee on winning profit to `treasury` (`protocolFeeBps` = 100). The deployment file will have the v3 keys plus
-`Guardian`, `Treasury` and `ProtocolFeeBps`. Pause / resume runbook: [`OPERATIONS.md`](OPERATIONS.md#5-emergency-pause-v31).
-
-| Contract / role | Address | Deploy tx |
+| Contract | Address | Deploy tx |
 |---|---|---|
-| TimelockController | pending deploy | — |
-| HouseExchange v3.1 | pending deploy | — |
-| SignedPriceOracle / PythPullOracle | pending deploy | — |
-| RebateToken / RebateStaking | pending deploy | — |
-| Guardian | pending deploy | — |
-| Treasury | pending deploy | — |
+| TimelockController (delay 3600 s; proposer + canceller = deployer, executor = anyone, no admin) | [`0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4`](https://explorer.test.mezo.org/address/0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4) | `0x9f244e92a219d79cea16bee0f99c305d1c41ed528fd2394e5564e7ca195c61dc` |
+| HouseExchange v3.1 (pause + protocol fee; Stability Pool wired, off until op B) | [`0x3c58314cd5710893519E5d962F553633ECC60cF7`](https://explorer.test.mezo.org/address/0x3c58314cd5710893519E5d962F553633ECC60cF7) | `0x067c54a0d3ebac8592cf0f874792b6baf74df59fde96cca88b253b10089c8af5` |
+| SignedPriceOracle (**active**; MUSD PriceFeed bound ±1%) | [`0x75a3071482883d9616bf0473B7eE25B4222b181F`](https://explorer.test.mezo.org/address/0x75a3071482883d9616bf0473B7eE25B4222b181F) | `0xf6083f0f7d138ae28a97437878c464062966136a7a7c1b46866036901178865c` |
+| PythPullOracle (switch-ready; MUSD PriceFeed bound ±1%) | [`0xf05B4108B93A83a1a87Ba1E392a81226aAC63619`](https://explorer.test.mezo.org/address/0xf05B4108B93A83a1a87Ba1E392a81226aAC63619) | `0xb6660709d2b56bc4d99981f39fc0cbadc6390bf3bdb54fcbcf88bbec96c7765a` |
+| RebateToken — Mezo Paper (`MPAPER`), new token, non-transferable | [`0xDACD4786EDCBB626BA95805E204FD18815a389D0`](https://explorer.test.mezo.org/address/0xDACD4786EDCBB626BA95805E204FD18815a389D0) | `0xd4b4458c11c7592a8f2c07d93f272aadd4e0727e3f5e564a7adc4c9b40636283` |
+| RebateStaking (MUSD + BTC rewards) | [`0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98`](https://explorer.test.mezo.org/address/0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98) | `0x327a702d86e1e4377d545a02c7559684a3f30eec9fb4aa0afd76f736669a3215` |
+| MUSD (Mezo) | [`0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`](https://explorer.test.mezo.org/address/0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503) | — |
 
-After the deploy: copy the file to `frontend/public/deployment.testnet.json` (the frontend reads `paused()`,
-`protocolFeeBps()` and `totalProtocolFees()` and falls back gracefully on v3), point the keeper Worker's
-`EXCHANGE_ADDRESS` / `ORACLE_ADDRESS` at v3.1, and record the timelock operations here.
+Mezo contracts wired into HouseExchange v3.1 (Stability Pool `0x1CCA…680e`, PriceFeed `0x86bC…9366`,
+BorrowerOperations, TroveManager, HintHelpers, SortedTroves) are the same as v3 and listed in
+`deployments/testnet-v3.1.json`.
 
-## v3 (Wave 2, current) — `deployments/testnet-v3.json`
+Configuration txs in the same broadcast: `setPriceBound` on both oracles, RebateToken `setMinter` / `setStaking`,
+HouseExchange `setStaking`, `setKeeper`, `setRisk`, `setStabilityPool`, `setSpParams(false, …)`, `setGuardian`,
+`setTreasury` (`0x24b227f56f5ad0fd2d2e065f8561b560109566174f0251b710b49beca5078e54`), `setProtocolFee(100)`
+(`0xe7ac28f0d53b64e577302b882a8fe7c9304cd47704e83031e9869a720c84433e`), then `transferOwnership(timelock)` for
+HouseExchange (`0x039dae9fa47859de2e9b63d15db5afc630c887d36c1a26281e58283ccf84125b`), both oracles and the RebateToken.
+
+Checked on-chain after the deploy (2026-11-07): `owner()` = timelock on all four owned contracts, `guardian` and
+`treasury` = deployer, `protocolFeeBps` = 100, `paused` = false, keeper whitelisted, price bound active.
+
+RebateToken v3.1 is a fresh token again: **MPAPER balances and stakes from v3 and v2 are not carried over** (v3 never
+had a trade, so it never minted any).
+
+### v3.1 keys and roles
+
+| Role | Address | Used by |
+|---|---|---|
+| Deployer = timelock proposer / canceller = **guardian** = **treasury** | `0xcDf407c01d38553eA44F250028D19b1d80898a21` | Deploy script, timelock `schedule`, `pause()` (cannot unpause), receives the 1% protocol fee. Owns nothing directly |
+| Keeper (`isKeeper` on HouseExchange v3.1) | `0x85601C5Fc9A735a2710ba78024115039a7a32a42` | Worker `KEEPER_PRIVATE_KEY`: fills, liquidations, price pushes, `rebalance` / `forwardBtc` |
+| Price signer (`signer` of SignedPriceOracle v3.1) | `0x0BFf571D7c806400Fc00D4Bb06AD1B660D5E2AEe` | Worker `PRICE_SIGNER_PRIVATE_KEY`: signs price reports only, sends no txs |
+
+Same three keys as v3. A leaked keeper or signer key can neither pause nor call owner functions.
+
+### v3.1 timelock operations
+
+| Op | Call | Status |
+|---|---|---|
+| B — enable the Stability Pool | `HouseExchange v3.1.setSpParams(true, 50e18, 5000, 2000)` (min liquid 50 MUSD, max share 50%, band 20%) | **Scheduled 2026-11-07 03:51 JST, executes after the 1-hour delay** (ready after 04:52 JST). id `0x77cc7265afb4c8530c759f7d95ea41d49fd3c1596e452bdc7693d4bea0d47909`, salt `keccak256("bustline-v3.1-sp-enable")` = `0x2f2e4a04e8a04eaf31038a0c61aaa833e8ee735299e060bc15d09dc32ef19f3b`, schedule tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`. Execute tx: `TODO(execute tx)` |
+
+Payload of op B (same as v3):
+`0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
+Record any `unpause()` operation here too (schedule / execute txs, salt).
+
+### v3.1 runbook (as executed)
+
+1. Broadcast (deployer key only from the environment; `GUARDIAN` / `TREASURY` default to the deployer;
+   `TIMELOCK_DELAY` below 3600 is refused):
+
+   ```bash
+   CONFIRM_TESTNET_DEPLOY=1 MEZO_TESTNET_PRIVATE_KEY=<deployer> KEEPER=<addr> PRICE_SIGNER=<addr> \
+     forge script script/DeployTestnetV3_1.s.sol --rpc-url https://rpc.test.mezo.org --broadcast
+   ```
+
+   Checked `deployments/testnet-v3.1.json` against the broadcast file (all six addresses match).
+2. Verified all six contracts on Blockscout (2026-11-07); see [`OPERATIONS.md`](OPERATIONS.md#verify-on-the-explorer)
+   for the "verified twin" pitfall.
+3. Pointed the keeper Worker at v3.1 (`keeper-worker/wrangler.toml`: `EXCHANGE_ADDRESS` / `ORACLE_ADDRESS` = v3.1,
+   `SP_OPS = "1"`, same secrets) and redeployed it (2026-11-07).
+4. Copied `deployments/testnet-v3.1.json` to `frontend/public/deployment.testnet.json`, rebuilt and redeployed the
+   static site (2026-11-07).
+5. Scheduled op B (above) from the proposer. Execute after the delay: `TODO(execute tx)`.
+6. Still open: first v3.1 trades, including real-wallet runs of the funding routes from a non-deployer wallet.
+
+## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
+
+Retired on 2026-11-07 when v3.1 went live: no trade ever happened on v3, the keeper Worker and the frontend no longer
+point at it, and its timelock / contracts are left as they are. Explorer links are kept for the record.
 
 Deployed 2026-11-06 by `script/DeployTestnetV3.s.sol` in one broadcast (19 txs, blocks 16603807–16603833). Owner of
 HouseExchange v3, both oracles and RebateToken v3 is the `TimelockController`; every owner action goes through
@@ -36,12 +94,12 @@ schedule → wait 1 hour → execute.
 
 | Contract | Address | Deploy tx |
 |---|---|---|
-| TimelockController (delay 3600 s; proposer + canceller = deployer, executor = anyone, no admin) | `0x5837370bC22766abb1754bb41C55e2b969288d90` | `0xe95aefedc7950ebcc9fa0fb035aab0c67516f139fbd3f119b871e14cfe0e7829` |
-| HouseExchange v3 (Stability Pool, enabled by op B on 2026-11-06) | `0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58` | `0x7dd70f3f286c94d8fce62ad44bc0b02f33230926748969f87b8554f7931cc3bf` |
-| SignedPriceOracle (**active**; MUSD PriceFeed bound ±1%) | `0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0` | `0xe1ac82a50ffee15d4d1591545a32a998eb88873b2429aee6dd9f56f4cdc8ed77` |
-| PythPullOracle (switch-ready; MUSD PriceFeed bound ±1%) | `0xC6cCeb1EAB44B81587A2713c70C17CB839aa34a0` | `0xa867ff822aa6b799aaf88cac11eca4bedbe376f860b3a03fd740f39188144c8e` |
-| RebateToken v3 — Mezo Paper (`MPAPER`), new token, non-transferable | `0x8627486B8f49191E492d94d44DF153Cc5983fd9B` | `0x972c44f3760df1a57724d43c5df7ce3fe714681595b264a5a25324c233d61cae` |
-| RebateStaking v3 (MUSD + BTC rewards) | `0x7EA0bdE3a2221cfdB40623D7EAdB9fCe683D683D` | `0x68fdd002faea7c9bb1d5488f96d6c52256894a15cf97a9f4a93183e8337f4d89` |
+| TimelockController (delay 3600 s; proposer + canceller = deployer, executor = anyone, no admin) | [`0x5837370bC22766abb1754bb41C55e2b969288d90`](https://explorer.test.mezo.org/address/0x5837370bC22766abb1754bb41C55e2b969288d90) | `0xe95aefedc7950ebcc9fa0fb035aab0c67516f139fbd3f119b871e14cfe0e7829` |
+| HouseExchange v3 (Stability Pool, enabled by op B on 2026-11-06) | [`0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58`](https://explorer.test.mezo.org/address/0x50828BbB08dce68eEf2588357Ef5FAE1f67f9F58) | `0x7dd70f3f286c94d8fce62ad44bc0b02f33230926748969f87b8554f7931cc3bf` |
+| SignedPriceOracle (**active**; MUSD PriceFeed bound ±1%) | [`0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0`](https://explorer.test.mezo.org/address/0xb4321D6d7E6B3f804B386E6A27d9e70DDc8e85A0) | `0xe1ac82a50ffee15d4d1591545a32a998eb88873b2429aee6dd9f56f4cdc8ed77` |
+| PythPullOracle (switch-ready; MUSD PriceFeed bound ±1%) | [`0xC6cCeb1EAB44B81587A2713c70C17CB839aa34a0`](https://explorer.test.mezo.org/address/0xC6cCeb1EAB44B81587A2713c70C17CB839aa34a0) | `0xa867ff822aa6b799aaf88cac11eca4bedbe376f860b3a03fd740f39188144c8e` |
+| RebateToken v3 — Mezo Paper (`MPAPER`), new token, non-transferable | [`0x8627486B8f49191E492d94d44DF153Cc5983fd9B`](https://explorer.test.mezo.org/address/0x8627486B8f49191E492d94d44DF153Cc5983fd9B) | `0x972c44f3760df1a57724d43c5df7ce3fe714681595b264a5a25324c233d61cae` |
+| RebateStaking v3 (MUSD + BTC rewards) | [`0x7EA0bdE3a2221cfdB40623D7EAdB9fCe683D683D`](https://explorer.test.mezo.org/address/0x7EA0bdE3a2221cfdB40623D7EAdB9fCe683D683D) | `0x68fdd002faea7c9bb1d5488f96d6c52256894a15cf97a9f4a93183e8337f4d89` |
 | MUSD (Mezo) | `0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503` | — |
 
 Mezo contracts wired into HouseExchange v3 (Stability Pool `0x1CCA…680e`, PriceFeed `0x86bC…9366`, BorrowerOperations,
@@ -50,7 +108,7 @@ TroveManager, HintHelpers, SortedTroves) are listed in `deployments/testnet-v3.j
 RebateToken v3 is wired at deploy time: `minter` = HouseExchange v3, `staking` = RebateStaking v3, `transferable` =
 false. It is a fresh token: **MPAPER balances and stakes from v2 are not carried over.**
 
-### Keys and roles (three different addresses)
+### v3 keys and roles (three different addresses)
 
 | Role | Address | Used by |
 |---|---|---|
@@ -60,7 +118,7 @@ false. It is a fresh token: **MPAPER balances and stakes from v2 are not carried
 
 A leaked keeper or signer key cannot call owner functions. All three keys are stored outside git.
 
-### Timelock operations
+### v3 timelock operations
 
 | Op | Call | Status |
 |---|---|---|
@@ -72,10 +130,10 @@ There is no op A any more: the RebateToken is new and was wired before ownership
 
 - The **v2 market** (`deployments/testnet.json`, below) is kept as the Wave 1 record. Its owner/keeper/signer key was
   lost, so nothing on v2 can be operated: open position #2 stays open, no keeper pushes v2 prices, and v2 MPAPER
-  balances and stakes are not migrated to v3.
+  balances and stakes are not migrated to v3 or v3.1.
 - The old Worker keeper (= the v2 deployer) is no longer used.
 
-### Runbook (as executed)
+### v3 runbook (as executed)
 
 1. Created three new keys (deployer/proposer, keeper, price signer) and stored them outside git. Funded the keeper
    with BTC for gas.
@@ -128,7 +186,7 @@ oracle was active.
 Mezo testnet Pyth **accepts mainnet-signed (stable) BTC/USD updates**. This was verified with a real Base-mainnet update
 (`parsePriceFeedUpdates` via `eth_call`, fee 10 wei) and in `test/fork/PythFork.t.sol` (accept, fill-in-same-tx and
 liquidation-with-update on the real Mezo Pyth bytecode). Pyth Hermes, however, requires an API key since 2026-08.
-On v3 the switch is one timelock operation — `HouseExchange v3.setOracle(PythPullOracle v3)` — plus `"oracleMode":
+On v3.1 the switch is one timelock operation — `HouseExchange v3.1.setOracle(PythPullOracle v3.1)` — plus `"oracleMode":
 "pyth"` in the deployment file once `PYTH_API_KEY` is set (on frozen v2 it can no longer be done).
 
 Trust model of the signed oracle: the keeper signs `(chainid, oracle, price, publishTime)` (EIP-191). The contract
