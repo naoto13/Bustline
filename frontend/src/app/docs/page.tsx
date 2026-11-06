@@ -60,7 +60,7 @@ export default function DocsPage() {
         </div>
       </header>
       <div className="banner">
-        Testnet demo, unaudited — Mezo testnet (31611) only. Up to 100x leverage; losses can be total.
+        Testnet demo — Mezo testnet (31611) only. Up to 100x leverage; losses can be total.
       </div>
 
       <div className="docs" id="top">

@@ -66,7 +66,7 @@ function bustPrice(isLong: boolean, margin: bigint, size: bigint, entry: bigint,
   const buf = bufDiv === 0n ? 0n : entry / bufDiv;
   return isLong ? (entry > dist ? entry - dist : 0n) + buf : entry + dist - buf;
 }
-const ORACLE_LABEL: Record<string, string> = { pyth: "Pyth pull", signed: "keeper-signed, Skip-bounded", mock: "mock oracle" };
+const ORACLE_LABEL: Record<string, string> = { pyth: "Pyth pull", signed: "keeper-signed, bounded ±1% by the Mezo MUSD PriceFeed", mock: "mock oracle" };
 
 const rawPnl = (p: Pos, price: bigint) => {
   const d = ((price > p.entryPrice ? price - p.entryPrice : p.entryPrice - price) * p.size) / p.entryPrice;
@@ -294,7 +294,7 @@ function Dashboard() {
 
   const banner = (
     <div className="banner">
-      TESTNET DEMO / UNAUDITED — {MODE === "local" ? `local anvil fork (${RPC_URL}), unlocked anvil accounts, no keys` : "Mezo testnet (31611) via Mezo Passport"}. Max {maxLev}x. Losses can be total. MUSD margin; losers receive non-transferable MPAPER; winners are paid FIFO from the house queue when the house is short.
+      TESTNET DEMO — {MODE === "local" ? `local anvil fork (${RPC_URL}), unlocked anvil accounts, no keys` : "Mezo testnet (31611) via Mezo Passport"}. Max {maxLev}x. Losses can be total. MUSD margin; losers receive non-transferable MPAPER; winners are paid FIFO from the house queue when the house is short.
     </div>
   );
 
@@ -311,7 +311,7 @@ function Dashboard() {
         <span className="stat"><span className="k">HOUSE</span><span className="num" data-stat="house">{compact(mk?.houseCash)}</span></span>
         <span className="stat"><span className="k">QUEUE</span><span className="num" data-stat="queue">{compact(mk?.queueTotal)}</span></span>
         <span className="stat"><span className="k">EQUITY</span><span className={`num ${(mk?.equity ?? 0n) < 0n ? "neg" : ""}`} data-stat="equity">{signed(mk?.equity)}</span></span>
-        <span className="stat" title={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode}><span className="k">ORACLE</span><span>{d.oracleMode === "signed" ? "signed · Skip ±1%" : d.oracleMode ?? "mock"}</span></span>
+        <span className="stat" title={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode}><span className="k">ORACLE</span><span>{d.oracleMode === "signed" ? "signed · PriceFeed ±1%" : d.oracleMode ?? "mock"}</span></span>
         <span className="stat"><span className="k">PUBLISHED</span><span className="num">{mk ? `${ageTxt} ago` : "–"}</span></span>
         <span className={`live ${live ? "" : "stale"}`} title={live ? "on-chain price is fresh (keeper heartbeat every 5 min; fills use a newer signed price)" : "stale — keeper pushes a fresh price every 5 min and with each fill/liquidation"}>{live ? "LIVE" : "STALE"}</span>
       </div>
@@ -358,7 +358,7 @@ function Dashboard() {
       <Funding d={d} who={who} readOnly={readOnly} busy={busy} side={side} lev={lev} marginW={marginW} musd={us?.musd}
         mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run}
         needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} />
-      <div className="fine">2-step: keeper fills at the next signed price (Skip ±1% bound). No funding, no spread; winners pay an impact haircut + 2% win fee. Bust = liquidation.</div>
+      <div className="fine">2-step: keeper fills at the next signed price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut + 2% win fee. Bust = liquidation.</div>
       {MODE === "local" && (
         <div className="demo">
           <div className="lbl">DEMO CONTROLS (LOCAL ANVIL)</div>
