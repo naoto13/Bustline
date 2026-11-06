@@ -18,7 +18,7 @@ export interface Env {
   TICK_SECONDS?: string;
   RUN_SECONDS?: string;
   HEARTBEAT_SECONDS?: string;
-  /** HouseExchange address. wrangler.toml [vars] sets v3 (deployments/testnet-v3.json); the fallback is the frozen v2. */
+  /** HouseExchange address (required; wrangler.toml [vars], v3 = deployments/testnet-v3.json). */
   EXCHANGE_ADDRESS?: string;
   /** SignedPriceOracle address — part of the signed-report digest, so it must match the exchange's oracle. */
   ORACLE_ADDRESS?: string;
@@ -30,19 +30,21 @@ export interface Env {
 
 const TESTNET_HOST = "rpc.test.mezo.org";
 const CHAIN_ID = 31611;
-const DEFAULT_EXCHANGE = "0x5e941EEA56DEE50924950E86f24624Be37f02050"; // v2 (frozen, deployments/testnet.json); wrangler.toml sets v3
-const DEFAULT_ORACLE = "0x83401Fc1B16DbCa09531241Dad49700248C8c72c"; // v2 SignedPriceOracle (frozen); wrangler.toml sets v3
+// Contract addresses come ONLY from wrangler.toml [vars] (v3 = deployments/testnet-v3.json). There is no fallback: a
+// missing var must stop the Worker, not silently point it at the frozen v2 market (fail closed).
 // Set from env at the start of every invocation (configure). env is fixed per deployment, so module scope is safe.
-let EXCHANGE: Hex = DEFAULT_EXCHANGE;
-let ORACLE: Hex = DEFAULT_ORACLE;
-function addr(v: string | undefined, fallback: string, name: string): Hex {
-  const a = (v ?? "").trim() || fallback;
+let EXCHANGE: Hex = "0x0000000000000000000000000000000000000000";
+let ORACLE: Hex = "0x0000000000000000000000000000000000000000";
+function addr(v: string | undefined, name: string): Hex {
+  const a = (v ?? "").trim();
+  if (!a) throw new Error(`${name} is not set (wrangler.toml [vars]); refusing to run`);
   if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error(`${name} is not an address: '${a}'`);
+  if (/^0x0{40}$/.test(a)) throw new Error(`${name} is the zero address`);
   return a as Hex;
 }
 function configure(env: Env): void {
-  EXCHANGE = addr(env.EXCHANGE_ADDRESS, DEFAULT_EXCHANGE, "EXCHANGE_ADDRESS");
-  ORACLE = addr(env.ORACLE_ADDRESS, DEFAULT_ORACLE, "ORACLE_ADDRESS");
+  EXCHANGE = addr(env.EXCHANGE_ADDRESS, "EXCHANGE_ADDRESS");
+  ORACLE = addr(env.ORACLE_ADDRESS, "ORACLE_ADDRESS");
 }
 const HARVEST_BATCH = 32n;
 const SCAN_WINDOW = 500;

@@ -77,8 +77,8 @@ without Telegram.
 | Health | `GET /health` → live on-chain price + age, open positions, pending orders, and the last run summary (tx hashes, per-tick results) from KV. No secrets |
 
 Configuration (`keeper-worker/wrangler.toml` `[vars]`): `EXCHANGE_ADDRESS` = HouseExchange v3, `ORACLE_ADDRESS` =
-SignedPriceOracle v3 (both from `deployments/testnet-v3.json`; the code's built-in fallback is the frozen v2 address,
-so always set them), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
+SignedPriceOracle v3 (both from `deployments/testnet-v3.json`; required — there is no built-in fallback, and the Worker
+refuses to run if either is missing), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
 `SP_INTERVAL_SECONDS`). Secrets: `KEEPER_PRIVATE_KEY` sends the txs, `PRICE_SIGNER_PRIVATE_KEY` signs the price reports
 (two different keys). Redeployed on v3 2026-11-06.
 
