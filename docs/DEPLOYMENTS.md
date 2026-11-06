@@ -79,7 +79,7 @@ There is no op A any more: the RebateToken is new and was wired before ownership
    payload =
    `0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
 5. After the delay, the deployer called `execute(HouseExchange v3, 0, payload, 0x0, salt)` (tx `0x1cf7de08e02f9628c34c075f7695ddd8049891a4851f8f6b72af68a9cc4b25a0`).
-6. To do: verify the v3 contracts on the explorer.
+6. Done (2026-11-06): all six v3 contracts verified on the explorer (Blockscout).
 7. Copied `deployments/testnet-v3.json` to `frontend/public/deployment.testnet.json`, built the static site and deployed it
    with `wrangler deploy` (`frontend/wrangler.jsonc`). The keeper Worker was redeployed to the same Cloudflare account
    (new KV namespace, same v3 vars and secrets); the Wave 1 Pages site and the old keeper Worker in the previous

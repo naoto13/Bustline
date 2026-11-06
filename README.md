@@ -18,7 +18,7 @@
 | Track | **DeFi** — leveraged trading with MUSD margin, MUSD yield for stakers |
 | Integrates MUSD | Margin, house cash, payout queue and staker revenue are all MUSD (real testnet MUSD from a Trove) |
 | Working deployment | v3 contracts live on **Mezo testnet** behind a timelock, keeper Worker running on v3; frontend at https://bustline.planz.workers.dev (reads v3) |
-| Mezo-native stack | Mezo Passport for wallets, Mezo Pyth for prices, Skip Connect (Mezo's oracle) as a ±1% guard rail |
+| Mezo-native stack | Mezo Passport for wallets; prices are keeper-signed and must stay within ±1% of Mezo's MUSD PriceFeed (sourced from Skip Connect); Mezo Pyth pull oracle deployed and verified, switch planned |
 | Evidence it works | A real 100x liquidation on testnet driven by the live price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 80 Foundry unit/fuzz + 44 fork tests (against real Mezo testnet state) + 23 keeper tests |
 
 ## Try it in 3 minutes

@@ -34,7 +34,7 @@ Planned before the Wave 2 deadline (2026-11-15):
   Stability Pool and keeps enough liquid MUSD for payouts.
 - **BTC rewards to MPAPER stakers** (`RebateStaking` v3): BTC collateral gains from the Stability Pool are forwarded to
   stakers.
-- **TimelockController** (1 h delay) as owner of HouseExchange, both oracles, RebateToken and RebateStaking; separate
+- **TimelockController** (1 h delay) as owner of HouseExchange, both oracles and RebateToken (RebateStaking has no owner); separate
   owner / keeper / price-signer keys.
 - **Trove funding routes** in the frontend (`components/Funding.tsx`, `lib/mezo.ts`): "Start with BTC" (open a trove,
   borrow MUSD, open a position in one flow), "From my trove", and "Deposit MUSD"; hints via HintHelpers/SortedTroves;
