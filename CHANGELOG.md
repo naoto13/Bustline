@@ -11,6 +11,11 @@ Planned before the Wave 2 deadline (2026-11-15):
 - Redeploy of the contract fixes below (they are not on-chain yet; v3 on testnet still runs the 2026-11-06 code).
 - Demo video recorded on v3.
 
+### Added
+
+- In-app Docs page at `/docs` (how trades, funding routes, the house queue, MPAPER, oracles and governance work, plus
+  live contract addresses); the header "Docs" link now opens it instead of GitHub. Header badge shows only TESTNET.
+
 ### Fixed (in the repo, after an independent review of the Wave 2 contracts on 2026-11-06)
 
 - `RebateStaking.claim()` no longer reverts when the staker cannot receive native BTC: MUSD is always paid, the BTC

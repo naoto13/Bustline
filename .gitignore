@@ -48,3 +48,5 @@ snapshot/
 *.m4v
 *.webm
 .DS_Store
+
+frontend/.wrangler/

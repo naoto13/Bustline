@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ConnectButton, useConnectModal } from "@rainbow-me/rainbowkit";
 import { useAccount, useWriteContract } from "wagmi";
@@ -140,8 +141,12 @@ function Dashboard() {
 
   useEffect(() => { loadDeployment().then(setDep); }, []);
   useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("viewAs");
+    const q = new URLSearchParams(window.location.search);
+    const v = q.get("viewAs");
     if (v && isAddress(v)) setViewAs(v);
+    // `?tab=house|mpaper` — deep link from /docs (navigation only)
+    const t = q.get("tab");
+    if (t === "house" || t === "mpaper") setTab(t);
   }, []);
   const readOnly = !!viewAs;
   const who: Address | undefined = viewAs ?? (MODE === "local" ? acct : passportAddr);
@@ -260,7 +265,7 @@ function Dashboard() {
             {t === "trade" ? "Trade" : t === "house" ? "House" : "MPAPER"}
           </a>
         ))}
-        <a href="https://github.com/naoto13/Bustline" target="_blank" rel="noreferrer" className="muted">Docs</a>
+        <Link href="/docs" className="muted">Docs</Link>
       </nav>
       <div className="navr">
         <span className="chip tag-testnet">TESTNET</span>
