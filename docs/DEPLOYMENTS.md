@@ -81,7 +81,34 @@ Record any `unpause()` operation here too (schedule / execute txs, salt).
 4. Copied `deployments/testnet-v3.1.json` to `frontend/public/deployment.testnet.json`, rebuilt and redeployed the
    static site (2026-11-07).
 5. Scheduled op B (above) from the proposer. Executed after the delay: `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` (`spEnabled = true`).
-6. Still open: first v3.1 trades, including real-wallet runs of the funding routes from a non-deployer wallet.
+6. First v3.1 trades (2026-11-07) from two scripted test wallets, below. Still open: trades by outside users.
+
+### v3.1 test-wallet trades (2026-11-07)
+
+Two wallets generated for this run, funded with testnet BTC by the deployer. They are scripted test wallets, not
+independent users and not Mezo Passport / UI sessions. Each step sends the same calls the app's funding flow sends
+(`frontend/src/components/Funding.tsx`); the keeper Worker filled every order. All receipts have status 1.
+
+- A `0x13b11d5C03f3B0fd26D376eE1a41D4E2B8c78011`, B `0x9ca9d3760345AABd825422B9128FA81FB8673992`
+
+| Step | Route | From | Tx |
+| --- | --- | --- | --- |
+| `openTrove` (0.0423 BTC collateral, 1,800 MUSD borrowed) | Start with BTC | A | `0x9cc208ec48a911a98894c812f4aecfa28e116ea75c0cffca68f6a20d9ebcd158` |
+| `MUSD.approve` | Start with BTC | A | `0x5f5ae6ed1fd01c3850cde598f92c922a7f7e70969a069ffc60af7ad020d82dcf` |
+| `requestOpen` long 50 MUSD × 50 | Start with BTC | A | `0xc22ea65d1252f39ca6f636e23139eb7c8169faf27356e4d6594a6c102f6c3088` |
+| `withdrawMUSD` 30 (ICR after: 157.8%) | From my trove | A | `0x33ed31e9eeae5a2acc494aae44a91ffc8c4c450b824165bc8a5d0882488fdcf0` |
+| `requestOpen` long 30 MUSD × 50 | From my trove | A | `0xe6398f2e7a2138070f2e38984070cc73193f4ee8f9ab5e415b4faaf9ff24bb99` |
+| MUSD transfer A → B, 80 | Deposit MUSD | A | `0x91294843536eae0088243bdfb8580cf7eefa63180c5ed2e1c8629cabda890a2e` |
+| `MUSD.approve` | Deposit MUSD | B | `0x0a4b2c25b590bfac03b2d3de19612af85941201deb1e665a8ab3bcb4baa36d77` |
+| `requestOpen` short 80 MUSD × 50 | Deposit MUSD | B | `0x85d0e85b57025a8cc58f5098a81eade6e0fd76714a246487752648dd5bacf259` |
+| Fills (keeper), all at 75,791.80 | — | keeper | `0xaa8945f8d6513b1bde6ff546ea640a701a6a778dc2542fca3cae17c55b0e75a8`, `0xd5881b17dfd4ccd75e1a7debbaa2cb8eb70d6a37cda94817a41c097dbd131348`, `0x10ba2327bc8cae84f93f6740f0f796a5b306e0abddcfe99b1cbb606ba832daea` |
+| Close short (loss 4.10 MUSD to the house, 410.33 MPAPER minted to B) | — | keeper | `0x6fa67a5fabc89ac26dce4a41f8d81cc84b9da6f9b0554f7cdb99362c2e63366c` |
+| B stakes 410.33 MPAPER | — | B | `0x6c5c77deffc635fd6786930430a650ff785f18e3563872659b529ef51a72c12b` |
+| Close long 50 (paid in full; protocol fee 0.0222, staker fee 0.0443) | — | keeper | `0x939b8c2c24a1c0e3ddf6a7d7c7b1b50315ddc6bb5f1fa0a7d80ed4ee609435e6` |
+| Close long 30 (paid in full; protocol fee 0.0133, staker fee 0.0266) | — | keeper | `0x23ea67fbb6394aa3c4209479c3a554073a2af612aa7f016c6bf668b4089b3f8b` |
+
+Result: `totalProtocolFees` 0.0355 MUSD (now on the treasury), 0.0709 MUSD to stakers, house cash 0.557 MUSD,
+queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD), so no Stability Pool deposit yet.
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
 

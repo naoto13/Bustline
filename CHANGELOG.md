@@ -5,10 +5,17 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 
 ## [Unreleased]
 
+### Added
+
+- First v3.1 trades (2026-11-07) from two scripted test wallets funded by the deployer: all three funding routes
+  ("Start with BTC", "From my trove", "Deposit MUSD"), a loss that funded the house, an MPAPER stake, and two wins paid
+  in full with the 1% protocol fee to the treasury and the 2% win fee to the staker. Txs in
+  [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-test-wallet-trades-2026-11-07).
+
 Still to do before the Wave 2 deadline (2026-11-15):
 
-- First v3.1 trades, including real-wallet runs of all three funding routes (Passport BTC wallet and an EVM wallet) from
-  a non-deployer wallet.
+- Trades by outside users, and a run of the funding routes through the UI with a Passport BTC wallet.
+- First Stability Pool deposit (needs house cash above 50 MUSD).
 - Switch the active oracle to the Pyth pull oracle (needs a Pyth Hermes API key and one timelock operation).
 - Demo video recorded on v3.1.
 
