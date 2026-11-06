@@ -3,10 +3,29 @@
 Mezo testnet only (chainId `31611`, `https://rpc.test.mezo.org`). Addresses of the current deployment are in
 [`DEPLOYMENTS.md`](DEPLOYMENTS.md).
 
-**Key handling.** The deployer/keeper key is read only from the `MEZO_TESTNET_PRIVATE_KEY` environment variable — never
-passed on argv, never written to files, never printed. Every write requires an explicit confirm flag.
+**Current state (2026-11-06).** v3 (`deployments/testnet-v3.json`) is the live market and the keeper Worker runs on
+it. v2 (`deployments/testnet.json`) is frozen: its single owner/keeper/signer key was lost, so the v2 commands below
+are kept for reference only. The production frontend still reads v2 until it is switched.
+
+**Key roles (v3).** Three different keys, all stored outside git (never committed, never printed):
+
+| Key | Address | Holds | Where it is used |
+|---|---|---|---|
+| Deployer = timelock proposer / canceller | `0xcDf4…8a21` | No direct ownership (the `TimelockController` owns HouseExchange, both oracles and the RebateToken) | `DeployTestnetV3` broadcast and timelock `schedule` / `cancel`. Read only from `MEZO_TESTNET_PRIVATE_KEY` |
+| Keeper | `0x8560…2a42` | `isKeeper` on HouseExchange v3, BTC for gas | Worker secret `KEEPER_PRIVATE_KEY` |
+| Price signer | `0x0BFf…2AEe` | `signer` of SignedPriceOracle v3; sends no txs | Worker secret `PRICE_SIGNER_PRIVATE_KEY` |
+
+Keys are read only from environment variables or Worker secrets — never passed on argv, never written to tracked
+files. Every write requires an explicit confirm flag. Owner actions on v3 (risk params, oracle switch, keeper list,
+`setSpParams`, MPAPER transfers) are timelock operations: `schedule` from the proposer, wait 1 hour, `execute` from any
+account. See [`DEPLOYMENTS.md`](DEPLOYMENTS.md#timelock-operations).
 
 ## 1. Deploy contracts
+
+v3 (current): see the [runbook](DEPLOYMENTS.md#runbook-as-executed) — `script/DeployTestnetV3.s.sol` with
+`CONFIRM_TESTNET_DEPLOY=1`, `KEEPER=<addr>` and `PRICE_SIGNER=<addr>`.
+
+v2 (frozen, for reference; `testnet_ops` reads `deployments/testnet.json` by default):
 
 ```bash
 # derive the address and check the gas balance (prints the address only)
@@ -20,9 +39,10 @@ CONFIRM_TESTNET_DEPLOY=1 forge script script/DeployTestnetDemo.s.sol --rpc-url h
 
 Contract creation doesn't touch the Skip precompile, so forge's local simulation works for deploys.
 
-## 2. Operator CLI
+## 2. Operator CLI (v2 only)
 
-Calls that read Skip can't go through forge/cast (forge's local simulation hits `EvmError NotActivated` on the
+`perp_keeper.testnet_ops` uses `keeper/abi` (no v3 functions) and defaults to `--deployment deployments/testnet.json`
+(frozen v2). Calls that read Skip can't go through forge/cast (forge's local simulation hits `EvmError NotActivated` on the
 precompile, and cast only takes keys on argv), so a small Python signer is used instead.
 
 ```bash
@@ -56,6 +76,12 @@ without Telegram.
 | Safety | Refuses any RPC host other than `rpc.test.mezo.org` and any chainId other than 31611 |
 | Health | `GET /health` → live on-chain price + age, open positions, pending orders, and the last run summary (tx hashes, per-tick results) from KV. No secrets |
 
+Configuration (`keeper-worker/wrangler.toml` `[vars]`): `EXCHANGE_ADDRESS` = HouseExchange v3, `ORACLE_ADDRESS` =
+SignedPriceOracle v3 (both from `deployments/testnet-v3.json`; the code's built-in fallback is the frozen v2 address,
+so always set them), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
+`SP_INTERVAL_SECONDS`). Secrets: `KEEPER_PRIVATE_KEY` sends the txs, `PRICE_SIGNER_PRIVATE_KEY` signs the price reports
+(two different keys). Redeployed on v3 2026-11-06.
+
 Signature / calldata / raw-tx encoding is checked byte-for-byte against the Python keeper:
 `node keeper-worker/test/sig.mjs` (public anvil key, never the keeper key) vs `perp_keeper.abi` + `eth_account`.
 
@@ -65,14 +91,13 @@ pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageMa
 pnpm check                                              # tsc --noEmit
 W="pnpm dlx --package node@22 --package wrangler@latest wrangler"   # wrangler needs Node >= 22
 $W deploy
-printenv MEZO_TESTNET_PRIVATE_KEY | $W secret put KEEPER_PRIVATE_KEY   # pipe only; never echo the key
+printenv KEEPER_KEY | $W secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
+printenv PRICE_SIGNER_KEY | $W secret put PRICE_SIGNER_PRIVATE_KEY   # a different key from the keeper
 $W tail --format pretty                                               # watch ticks
 curl -s https://bustline-keeper.m9m1c3.workers.dev/health
 ```
 
-Run only **one** keeper per key: stop the Python keeper (`pkill -f perp_keeper`) once the Worker is pushing,
-otherwise the two race for nonces. To fall back to Python, remove the cron (`wrangler triggers`) or `$W delete`, then
-start the Python keeper below.
+Run only **one** keeper per key, otherwise two processes race for nonces.
 
 Workers Free limits:
 
@@ -86,7 +111,11 @@ Workers Free limits:
   can be up to ~10 min old; the `live` block is always fresh.
 - Cron trigger changes can take a few minutes to start firing after the first deploy.
 
-### Python keeper (fallback)
+### Python keeper (v2 only, not a fallback for v3)
+
+The Python keeper has no v3 functions (`rebalance`, `forwardBtc`, Stability Pool views) and defaults to the frozen v2
+deployment, whose key was lost. It is kept for local forks and reference; it is **not** a working fallback for the v3
+market.
 
 ```bash
 cd keeper
@@ -98,10 +127,13 @@ The price source follows `"oracleMode"` in the deployment file: `signed` → kee
 
 ## 4. Frontend
 
+The frontend reads the gitignored `frontend/public/deployment.testnet.json` at runtime. The production site still has
+the v2 file; switching it to v3 (pending) means copying `deployments/testnet-v3.json` there and redeploying.
+
 Local, against a testnet deployment:
 
 ```bash
-cp deployments/testnet.json frontend/public/deployment.testnet.json
+cp deployments/testnet-v3.json frontend/public/deployment.testnet.json
 cd frontend && pnpm install --frozen-lockfile && NEXT_PUBLIC_MODE=testnet pnpm build && pnpm start   # writes are signed by Mezo Passport
 ```
 

@@ -18,7 +18,7 @@ export interface Env {
   TICK_SECONDS?: string;
   RUN_SECONDS?: string;
   HEARTBEAT_SECONDS?: string;
-  /** HouseExchange address (wrangler.toml [vars]). Default = v2 (deployments/testnet.json). */
+  /** HouseExchange address. wrangler.toml [vars] sets v3 (deployments/testnet-v3.json); the fallback is the frozen v2. */
   EXCHANGE_ADDRESS?: string;
   /** SignedPriceOracle address — part of the signed-report digest, so it must match the exchange's oracle. */
   ORACLE_ADDRESS?: string;
@@ -30,8 +30,8 @@ export interface Env {
 
 const TESTNET_HOST = "rpc.test.mezo.org";
 const CHAIN_ID = 31611;
-const DEFAULT_EXCHANGE = "0x5e941EEA56DEE50924950E86f24624Be37f02050"; // v2, deployments/testnet.json HouseExchange
-const DEFAULT_ORACLE = "0x83401Fc1B16DbCa09531241Dad49700248C8c72c"; // v2 SignedPriceOracle
+const DEFAULT_EXCHANGE = "0x5e941EEA56DEE50924950E86f24624Be37f02050"; // v2 (frozen, deployments/testnet.json); wrangler.toml sets v3
+const DEFAULT_ORACLE = "0x83401Fc1B16DbCa09531241Dad49700248C8c72c"; // v2 SignedPriceOracle (frozen); wrangler.toml sets v3
 // Set from env at the start of every invocation (configure). env is fixed per deployment, so module scope is safe.
 let EXCHANGE: Hex = DEFAULT_EXCHANGE;
 let ORACLE: Hex = DEFAULT_ORACLE;

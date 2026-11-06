@@ -53,7 +53,7 @@ contract WaveTwoForkTest is Base {
     address constant PRICE_FEED = 0x86bCF0841622a5dAC14A313a15f96A95421b9366;
     address constant TROVE_MANAGER = 0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0;
     address constant SORTED_TROVES = 0x722E4D24FD6Ff8b0AC679450F3D91294607268fA;
-    address constant V2_OWNER = 0x715211CAdb65Cc184c955B283933A1F7021d00b0;
+    address constant RT_V2_ADDR = 0x07F9bd344916571321f494aE00eDD30ac1dE89Bd; // v2 RebateToken (frozen)
     uint256 constant HIGH = 160_000e18; // keeps the live testnet's lowest trove (≈109% at ~78k) above MCR
     uint256 constant SIGNER_PK = 0xA11CE;
 
@@ -219,12 +219,13 @@ contract WaveTwoForkTest is Base {
     function test_fork_deployScriptV3_ownersAndTimelockFlow() public {
         vm.setEnv("CONFIRM_TESTNET_DEPLOY", "1");
         vm.setEnv("MEZO_TESTNET_PRIVATE_KEY", "0");
-        vm.setEnv("DEPLOYER", vm.toString(V2_OWNER)); // real RebateToken owner → ownership moves to the timelock
+        address dep = makeAddr("freshDeployer"); // v3 deploys its own RebateToken: no v2 key needed
+        vm.setEnv("DEPLOYER", vm.toString(dep));
         address k = makeAddr("keeperKey");
         address s = makeAddr("signerKey");
         DeployTestnetV3 script = new DeployTestnetV3();
         // (env is process-global, so the shared-key rejection lives in this one test)
-        vm.setEnv("KEEPER", vm.toString(V2_OWNER));
+        vm.setEnv("KEEPER", vm.toString(dep));
         vm.setEnv("PRICE_SIGNER", vm.toString(s));
         vm.expectRevert(bytes("deployer, KEEPER, PRICE_SIGNER must be 3 different addresses"));
         script.run();
@@ -236,40 +237,37 @@ contract WaveTwoForkTest is Base {
         assertEq(d.pythOracle.owner(), tl);
         assertEq(d.signedOracle.owner(), tl);
         assertEq(d.rebateToken.owner(), tl);
-        assertTrue(d.rebateTokenToTimelock);
+        assertTrue(address(d.rebateToken) != RT_V2_ADDR, "fresh RebateToken, not v2's");
+        assertEq(d.rebateToken.name(), "Mezo Paper");
+        assertEq(d.rebateToken.symbol(), "MPAPER");
+        assertEq(d.rebateToken.totalSupply(), 0);
+        assertEq(d.rebateToken.minter(), address(d.exchange));
+        assertEq(d.rebateToken.staking(), address(d.staking));
+        assertFalse(d.rebateToken.transferable());
+        assertEq(address(d.exchange.rebateToken()), address(d.rebateToken));
         assertEq(d.timelock.getMinDelay(), 3600);
         assertTrue(d.exchange.isKeeper(k));
-        assertFalse(d.exchange.isKeeper(V2_OWNER));
+        assertFalse(d.exchange.isKeeper(dep));
         assertEq(d.signedOracle.signer(), s);
         assertFalse(d.exchange.spEnabled());
         assertEq(address(d.exchange.stabilityPool()), STABILITY_POOL);
         assertEq(address(d.signedOracle.priceFeed()), PRICE_FEED);
 
         // deployer can no longer act as owner
-        vm.prank(V2_OWNER);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, V2_OWNER));
-        d.rebateToken.setMinter(address(d.exchange));
-        vm.prank(V2_OWNER);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, V2_OWNER));
+        vm.prank(dep);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, dep));
+        d.rebateToken.setMinter(address(1));
+        vm.prank(dep);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, dep));
         d.exchange.setOracle(address(1));
 
-        // op A through the timelock: schedule → (too early) → warp → execute
-        (address[] memory t, uint256[] memory v, bytes[] memory p) = script.rebateSwitchBatch(d);
-        bytes32 salt = script.REBATE_SWITCH_SALT();
-        vm.prank(V2_OWNER);
-        d.timelock.scheduleBatch(t, v, p, bytes32(0), salt, 3600);
-        vm.expectRevert();
-        d.timelock.executeBatch(t, v, p, bytes32(0), salt);
-        vm.warp(block.timestamp + 3600);
-        d.timelock.executeBatch(t, v, p, bytes32(0), salt);
-        assertEq(d.rebateToken.minter(), address(d.exchange));
-        assertEq(d.rebateToken.staking(), address(d.staking));
-
-        // op B: enable SP
+        // op B through the timelock: schedule → (too early) → warp → execute
         (address spT, bytes memory spP) = script.spEnableCall(d);
         bytes32 spSalt = script.SP_ENABLE_SALT();
-        vm.prank(V2_OWNER);
+        vm.prank(dep);
         d.timelock.schedule(spT, 0, spP, bytes32(0), spSalt, 3600);
+        vm.expectRevert();
+        d.timelock.execute(spT, 0, spP, bytes32(0), spSalt);
         vm.warp(block.timestamp + 3600);
         d.timelock.execute(spT, 0, spP, bytes32(0), spSalt);
         assertTrue(d.exchange.spEnabled());

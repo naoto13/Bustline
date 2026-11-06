@@ -41,6 +41,8 @@ contract TimelockTest is Test {
         ex = new HouseExchange(address(musd), address(so), address(rt), deployer);
         st = new RebateStaking(address(rt), address(musd), address(ex));
         ex.setStaking(address(st));
+        rt.setMinter(address(ex)); // v3 deploys its own RebateToken and wires it before the handover
+        rt.setStaking(address(st));
         ex.setKeeper(keeper, true);
         ex.transferOwnership(address(tl));
         so.transferOwnership(address(tl));
@@ -98,20 +100,28 @@ contract TimelockTest is Test {
         assertEq(address(ex.oracle()), address(0xBEEF));
     }
 
-    function test_rebateSwitchBatch() public {
+    function test_rebateTokenWiredThenOwnerPowersViaTimelock() public {
+        assertEq(rt.owner(), address(tl));
+        assertEq(rt.minter(), address(ex));
+        assertEq(rt.staking(), address(st));
+        assertFalse(rt.transferable());
+        vm.prank(deployer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployer));
+        rt.setMinter(anyone);
+        // later changes (e.g. a future exchange) still go schedule → wait → execute
         address[] memory t = new address[](2);
         t[0] = address(rt);
         t[1] = address(rt);
         uint256[] memory v = new uint256[](2);
         bytes[] memory p = new bytes[](2);
-        p[0] = abi.encodeCall(RebateToken.setMinter, (address(ex)));
-        p[1] = abi.encodeCall(RebateToken.setStaking, (address(st)));
+        p[0] = abi.encodeCall(RebateToken.setMinter, (anyone));
+        p[1] = abi.encodeCall(RebateToken.setStaking, (anyone));
         vm.prank(deployer);
         tl.scheduleBatch(t, v, p, bytes32(0), bytes32("s"), DELAY);
         vm.warp(block.timestamp + DELAY);
         tl.executeBatch(t, v, p, bytes32(0), bytes32("s"));
-        assertEq(rt.minter(), address(ex));
-        assertEq(rt.staking(), address(st));
+        assertEq(rt.minter(), anyone);
+        assertEq(rt.staking(), anyone);
     }
 
     function test_onlyProposerSchedules_proposerCancels() public {

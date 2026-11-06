@@ -74,7 +74,7 @@ testnet のアドレス:
 
 ### 3.4 鍵
 
-今は owner、keeper、価格署名者が同じ EOA（`0x715211CA…`）。keeper の鍵は Cloudflare Worker の secret にあり、漏れると owner として `setOracle` を呼べてしまう。
+v2（凍結）では owner、keeper、価格署名者が同じ EOA（`0x715211CA…`）だった。keeper の鍵は Cloudflare Worker の secret にあり、漏れると owner として `setOracle` を呼べてしまう。v3 ではこの3つを別の鍵に分け、owner は timelock にした。
 
 ## 4. 全体構成（変更後）
 
@@ -237,20 +237,24 @@ testnet のアドレス:
 受入条件:
 
 - [ ] owner 権限の関数をデプロイヤーが直接呼ぶと revert し、timelock から遅延後に実行すると成功する
-- [ ] deployments の JSON に timelock、keeper、価格署名者の3つのアドレスが別々に記録されている
+- [x] deployments の JSON に timelock、keeper、価格署名者の3つのアドレスが別々に記録されている → `deployments/testnet-v3.json`（2026-11-06）
 
 ## 6. v2 → v3 への移行
 
-- v3 として、HouseExchange、RebateStaking、オラクルを新規にデプロイする
-- RebateToken（MPAPER）は使い回す。保有量を残すため。timelock 経由で `setMinter(v3)` と `setStaking(v3 の RebateStaking)` を実行する
-  - v2 のステーカーは、v2 の RebateStaking から unstake して v3 にステークし直す。手順を README に書く
-  - 実行前に、`RebateToken.setStaking` を切り替えても v2 からの unstake ができることをコードで確かめる（8 章）
+**決定（2026-11-06）: v2 のデプロイヤー鍵を紛失したため、RebateToken も新しくデプロイする。v2 は記録として凍結する。**
+
+- v3 として、HouseExchange、RebateStaking、オラクルに加えて、RebateToken（"Mezo Paper"／`MPAPER`、譲渡不可）も新規にデプロイする（`script/DeployTestnetV3.s.sol`）
+  - デプロイの中で `setMinter(HouseExchange v3)` と `setStaking(RebateStaking v3)` を済ませてから、owner を timelock に移す。timelock 操作 A（v2 の RebateToken の切り替え）は不要になった
+  - ~~RebateToken（MPAPER）は使い回す。timelock 経由で `setMinter(v3)` と `setStaking(v3)` を実行する~~ → 中止（理由: v2 デプロイヤー鍵の紛失により新トークンで再デプロイ）
 - v2 の扱い
-  - 移行前に、v2 の建玉、escrow、キュー、houseCash を RPC で読む
-  - 建玉と escrow が残っていれば、keeper を動かしたまま、決済とキャンセルで空にしてから切り替える
-  - v2 にはオーナーが資金を引き出す関数がない。残った houseCash は v2 に残る。docs/DEPLOYMENTS.md に記録する
-- keeper-worker: `EXCHANGE` と `ORACLE` のアドレスが直書き（`keeper-worker/src/index.ts:22-23`）。設定から読むように変え、v3 に向ける。tick の中で `rebalance()` と `forwardBtc()` を呼ぶ（呼ぶ間隔は todo で決める）
-- フロント: deployment の JSON を読む仕組みは今のまま（`frontend/src/lib/config.ts:30`）
+  - v2（`deployments/testnet.json`）は凍結し、Wave 1 の記録として残す。鍵がないので操作できない
+  - v2 の建玉 #2、MPAPER の保有量とステークは v3 に移さない。README と docs/DEPLOYMENTS.md に書く
+  - ~~建玉と escrow が残っていれば、決済とキャンセルで空にしてから切り替える~~ → 中止（同上）
+  - v2 にはオーナーが資金を引き出す関数がない。残った houseCash（約 110 MUSD）は v2 に残る
+- 鍵: デプロイヤー（timelock の proposer）、keeper、価格署名者を3つの別の鍵にする。鍵は git の外に置く
+- v3 のアドレスは `deployments/testnet-v3.json` に記録する（v2 の `deployments/testnet.json` はそのまま）
+- keeper-worker: アドレスを設定（`wrangler.toml` の `EXCHANGE_ADDRESS`・`ORACLE_ADDRESS`）から読むように変え、v3 に向ける。tick の中で `rebalance()` と `forwardBtc()` を呼ぶ（`SP_OPS = "1"`、間隔は `SP_INTERVAL_SECONDS`）。2026-11-06 に v3 で再デプロイ済み
+- フロント: deployment の JSON を読む仕組みは今のまま（`frontend/src/lib/config.ts:30`）。本番の `deployment.testnet.json` を v3 に切り替えるのは未実施
 
 ## 7. テスト方針
 
@@ -263,9 +267,9 @@ testnet のアドレス:
 
 1. ~~fork テストで Skip の precompile が動くか~~ → **確認済み（2026-11-02）**: そのままでは revert するが、`vm.etch` で mock の aggregator を置けば、PriceFeed、BorrowerOperations、StabilityPool がすべて fork で動く（`test/fork/MezoPrimitivesFork.t.sol`）
 2. ~~testnet の faucet で、1回にどれだけ BTC がもらえるか~~ → **確認済み（2026-11-02）**: 1回 0.05 BTC。1回で trove を開けるので、既定の入金方法は「BTC で始める」のまま
-3. v2 の建玉、escrow、キュー、houseCash、RebateStaking のステーク量（RPC で読む）
-4. `RebateToken.setStaking` を切り替えた後も、v2 の RebateStaking から unstake できるか
-5. SP の初期パラメータ（`spMinLiquid` など）を 3 の結果で決める
+3. ~~v2 の建玉、escrow、キュー、houseCash、RebateStaking のステーク量（RPC で読む）~~ → **確認済み（2026-11-02）**。todo 0 章
+4. ~~`RebateToken.setStaking` を切り替えた後も、v2 の RebateStaking から unstake できるか~~ → **確認済み**: できない。ただし 2026-11-06 の決定で RebateToken を新しくしたので、切り替え自体を行わない
+5. ~~SP の初期パラメータ（`spMinLiquid` など）を 3 の結果で決める~~ → **決定済み**: 50 MUSD、5,000、2,000（todo 0 章）
 
 ## 9. 完了の条件
 

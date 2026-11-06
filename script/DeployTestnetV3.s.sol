@@ -15,21 +15,25 @@ import { MezoTestnet, MezoExtra } from "./MezoTestnet.sol";
 /// @notice What it does (all as the deployer, in one broadcast):
 ///   1. TimelockController: delay TIMELOCK_DELAY (default 3600 s), proposer + canceller = deployer, executor = anyone,
 ///      no admin (the timelock administers itself).
-///   2. PythPullOracle + SignedPriceOracle with the MUSD PriceFeed bound (±1%), HouseExchange v3, RebateStaking v3.
-///      The existing RebateToken (MPAPER, REBATE_TOKEN, default = deployments/testnet.json) is reused.
-///   3. Configures everything (keeper, risk caps, Stability Pool wiring, SP params with spEnabled = false), THEN hands
-///      ownership of HouseExchange v3, both oracles and — if the deployer still owns it — the RebateToken to the
-///      timelock. From here on every owner action goes through schedule → wait → execute.
-///   4. Prints the timelock operations the user runs later (NOT scheduled here — see the order in the output):
-///      RebateToken.setMinter(v3) + setStaking(v3 staking) as one batch, and HouseExchange.setSpParams(true, …).
+///   2. PythPullOracle + SignedPriceOracle with the MUSD PriceFeed bound (±1%), a NEW RebateToken v3 (same name and
+///      symbol as v2, "Mezo Paper" / "MPAPER", non-transferable), HouseExchange v3 and RebateStaking v3.
+///      The v2 RebateToken (0x07F9…89Bd) is NOT reused: its owner key is lost, so it stays frozen as the v2 record and
+///      MPAPER balances are not migrated.
+///   3. Configures everything (RebateToken minter = HouseExchange v3, staking = RebateStaking v3; keeper, risk caps,
+///      Stability Pool wiring, SP params with spEnabled = false), THEN hands ownership of HouseExchange v3, both
+///      oracles and the RebateToken v3 to the timelock. From here on every owner action goes through
+///      schedule → wait → execute.
+///   4. Prints the one timelock operation the user runs later (NOT scheduled here): HouseExchange.setSpParams(true, …)
+///      to enable the Stability Pool, after the keeper Worker points at v3.
 /// Keys: deployer (= timelock proposer), KEEPER and PRICE_SIGNER must be three DIFFERENT addresses (env, required).
 /// Guards: chainId 31611, CONFIRM_TESTNET_DEPLOY=1. The deployer key is read ONLY from MEZO_TESTNET_PRIVATE_KEY
 /// (never on the command line). Without it, DEPLOYER=<address> runs an unsigned simulation (dry-run).
 /// deployments/testnet-v3.json is written only when broadcasting; deployments/testnet.json (v2) is never touched.
 contract DeployTestnetV3 is Script {
-    bytes32 public constant REBATE_SWITCH_SALT = keccak256("bustline-v3-rebate-switch");
     bytes32 public constant SP_ENABLE_SALT = keccak256("bustline-v3-sp-enable");
-    address internal constant RT_V2 = 0x07F9bd344916571321f494aE00eDD30ac1dE89Bd; // deployments/testnet.json
+    // Same name/symbol as the v2 RebateToken 0x07F9bd344916571321f494aE00eDD30ac1dE89Bd (read via cast call).
+    string public constant REBATE_NAME = "Mezo Paper";
+    string public constant REBATE_SYMBOL = "MPAPER";
 
     // SP initial parameters (todo 0): v2 accumulated ~110 MUSD of house cash over Wave 1 → testnet-scale values.
     uint256 public constant SP_MIN_LIQUID = 50e18;
@@ -47,7 +51,6 @@ contract DeployTestnetV3 is Script {
         HouseExchange exchange;
         RebateStaking staking;
         RebateToken rebateToken;
-        bool rebateTokenToTimelock;
     }
 
     function run() external returns (Deployed memory d) {
@@ -64,8 +67,6 @@ contract DeployTestnetV3 is Script {
         require(d.keeper != address(0) && d.priceSigner != address(0), "zero address");
         uint256 delay = vm.envOr("TIMELOCK_DELAY", uint256(3600));
         bool pythPrimary = keccak256(bytes(vm.envOr("ORACLE_MODE", string("signed")))) == keccak256("pyth");
-        d.rebateToken = RebateToken(vm.envOr("REBATE_TOKEN", RT_V2));
-        require(address(d.rebateToken).code.length > 0, "REBATE_TOKEN has no code");
 
         if (pk != 0) vm.startBroadcast(pk);
         else vm.startBroadcast(d.deployer);
@@ -82,9 +83,12 @@ contract DeployTestnetV3 is Script {
         d.signedOracle.setPriceBound(MezoTestnet.PRICE_FEED, 100);
         d.oracle = pythPrimary ? address(d.pythOracle) : address(d.signedOracle);
 
+        d.rebateToken = new RebateToken(REBATE_NAME, REBATE_SYMBOL, d.deployer); // transferable stays false
         d.exchange = new HouseExchange(MezoTestnet.MUSD, d.oracle, address(d.rebateToken), d.deployer);
         d.staking = new RebateStaking(address(d.rebateToken), MezoTestnet.MUSD, address(d.exchange));
         d.exchange.setStaking(address(d.staking));
+        d.rebateToken.setMinter(address(d.exchange));
+        d.rebateToken.setStaking(address(d.staking));
         d.exchange.setKeeper(d.keeper, true);
         // testnet demo caps (same as v2): 100x, min margin 10 MUSD, 100k max notional, 1M OI/side, 5bps buffer, 5 min
         d.exchange.setRisk(100, 10e18, 100_000e18, 1_000_000e18, 2_000, 300);
@@ -97,30 +101,13 @@ contract DeployTestnetV3 is Script {
         d.exchange.transferOwnership(address(d.timelock));
         d.pythOracle.transferOwnership(address(d.timelock));
         d.signedOracle.transferOwnership(address(d.timelock));
-        if (d.rebateToken.owner() == d.deployer) {
-            d.rebateToken.transferOwnership(address(d.timelock));
-            d.rebateTokenToTimelock = true;
-        }
+        d.rebateToken.transferOwnership(address(d.timelock));
         vm.stopBroadcast();
 
         _report(d, delay, pythPrimary);
     }
 
     // ------------------------------------------------------------------ timelock operations (for the user)
-    function rebateSwitchBatch(Deployed memory d)
-        public
-        pure
-        returns (address[] memory targets, uint256[] memory values, bytes[] memory payloads)
-    {
-        targets = new address[](2);
-        values = new uint256[](2);
-        payloads = new bytes[](2);
-        targets[0] = address(d.rebateToken);
-        targets[1] = address(d.rebateToken);
-        payloads[0] = abi.encodeCall(RebateToken.setMinter, (address(d.exchange)));
-        payloads[1] = abi.encodeCall(RebateToken.setStaking, (address(d.staking)));
-    }
-
     function spEnableCall(Deployed memory d) public pure returns (address target, bytes memory payload) {
         target = address(d.exchange);
         payload = abi.encodeCall(HouseExchange.setSpParams, (true, SP_MIN_LIQUID, SP_MAX_SHARE_BPS, SP_BAND_BPS));
@@ -161,29 +148,11 @@ contract DeployTestnetV3 is Script {
         }
 
         address tl = address(d.timelock);
-        (address[] memory t, uint256[] memory v, bytes[] memory p) = rebateSwitchBatch(d);
-        bytes32 switchId = d.timelock.hashOperationBatch(t, v, p, bytes32(0), REBATE_SWITCH_SALT);
         (address spT, bytes memory spP) = spEnableCall(d);
         bytes32 spId = d.timelock.hashOperation(spT, 0, spP, bytes32(0), SP_ENABLE_SALT);
 
-        console2.log("==== v3 deployed. Owner of HouseExchange v3 / oracles = Timelock", tl);
-        if (!d.rebateTokenToTimelock) {
-            console2.log("!! RebateToken owner is not the deployer; transfer it to the Timelock separately:", tl);
-        }
-        console2.log("---- Timelock op A (RebateToken -> v3). Run ONLY after v2 has no open position / pending order");
-        console2.log("     and v2 RebateStaking.totalStaked() == 0 (otherwise v2 losses + unstakes would revert).");
-        console2.log("     id:");
-        console2.logBytes32(switchId);
-        console2.log("     salt:");
-        console2.logBytes32(REBATE_SWITCH_SALT);
-        console2.log("     target (both calls): RebateToken", address(d.rebateToken));
-        console2.log("     payload[0] setMinter(HouseExchange v3):");
-        console2.logBytes(p[0]);
-        console2.log("     payload[1] setStaking(RebateStaking v3):");
-        console2.logBytes(p[1]);
-        console2.log("     schedule (proposer=deployer): scheduleBatch(targets,[0,0],payloads,0x0,salt,delay)");
-        console2.log("     execute (anyone, after delay): executeBatch(targets,[0,0],payloads,0x0,salt)");
-        console2.log("---- Timelock op B (enable Stability Pool). After op A and the keeper points at v3.");
+        console2.log("==== v3 deployed. Owner of HouseExchange v3 / oracles / RebateToken v3 = Timelock", tl);
+        console2.log("---- Timelock op B (enable Stability Pool). After the keeper Worker points at v3.");
         console2.log("     id:");
         console2.logBytes32(spId);
         console2.log("     target HouseExchange v3", spT);

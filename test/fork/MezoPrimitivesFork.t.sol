@@ -19,6 +19,10 @@ interface IMusdTroveManager {
     function getTroveStatus(address borrower) external view returns (uint256);
     function getTroveDebt(address borrower) external view returns (uint256);
     function checkRecoveryMode(uint256 price) external view returns (bool);
+    function getEntireDebtAndColl(address)
+        external
+        view
+        returns (uint256 coll, uint256 principal, uint256 interest, uint256 pColl, uint256 pPrincipal, uint256 pInt);
 }
 
 interface IMusdStabilityPool {
@@ -141,7 +145,7 @@ contract MezoPrimitivesForkTest is Test {
     // --- 3a. openTrove ---------------------------------------------------------------------------------------
 
     function test_fork_etch_openTrove() public {
-        // Live testnet lowest trove is ~109% at the live price; use 2x to stay well clear of MCR / recovery mode.
+        // Live testnet lowest trove is only ~110% at the live price (it moves); use 2x to stay clear of MCR / recovery mode.
         _etchSkip(18, 160_000e18);
         assertFalse(tm.checkRecoveryMode(160_000e18));
 
@@ -205,14 +209,38 @@ contract MezoPrimitivesForkTest is Test {
         sp.withdrawFromSP(1);
     }
 
-    /// Live-state observation: at the live price (read from the real node via the RPC, ~78.3k), the testnet's
-    /// lowest trove is already under MCR, so `withdrawFromSP(amount > 0)` on the real testnet is blocked right now.
-    function test_fork_etch_liveLikePrice_lowestTroveUnderMcr() public {
+    /// Independent of live state: the mock price is derived from the lowest trove's own coll/debt so that its ICR is
+    /// 105% (< MCR), then `withdrawFromSP(amount > 0)` must revert. The ICR at a ~live price is only logged — the
+    /// live testnet's lowest trove has been both under (~109%) and over (~113%) MCR, so nothing is asserted on it.
+    function test_fork_etch_derivedPrice_lowestTroveUnderMcr_blocksWithdraw() public {
         uint256 live = 78_293e18;
         _etchSkip(18, int256(live));
-        uint256 icr = tm.getCurrentICR(st.getLast(), live);
-        emit log_named_uint("lowest trove ICR at ~live price (1e18=100%)", icr);
-        assertLt(icr, MCR, "live testnet: SP withdrawals (amount>0) are currently blocked");
+        address lowest = st.getLast();
+        emit log_named_uint(
+            "lowest trove ICR at ~live price (1e18=100%, informational)", tm.getCurrentICR(lowest, live)
+        );
+
+        // Deposit at a high price (openTrove needs a healthy system), so there is something to withdraw.
+        uint256 high = 160_000e18;
+        MockSkipAggregator(SKIP).setPrice(int256(high));
+        vm.startPrank(borrower);
+        bo.openTrove{ value: 1 ether }(2000e18, address(0), address(0));
+        IERC20Min(MUSD).approve(STABILITY_POOL, type(uint256).max);
+        sp.provideToSP(1500e18);
+        vm.stopPrank();
+        assertEq(st.getLast(), lowest, "borrower's 1 BTC trove is not the lowest");
+
+        // ICR = coll * price / debt  →  price = target * debt / coll.
+        (uint256 coll, uint256 principal, uint256 interest,,,) = tm.getEntireDebtAndColl(lowest);
+        assertGt(coll, 0, "lowest trove has collateral");
+        uint256 price = 1.05e18 * (principal + interest) / coll;
+        MockSkipAggregator(SKIP).setPrice(int256(price));
+        emit log_named_uint("mock price for 105% ICR", price);
+        assertLt(tm.getCurrentICR(lowest, price), MCR, "lowest trove under MCR at the derived price");
+
+        vm.prank(borrower);
+        vm.expectRevert(bytes("StabilityPool: Cannot withdraw while there are troves with ICR < MCR"));
+        sp.withdrawFromSP(1);
     }
 }
 
