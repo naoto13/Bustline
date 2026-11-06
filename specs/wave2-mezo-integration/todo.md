@@ -44,12 +44,12 @@
 
 - [ ] ~~v2 の建玉と escrow を空にする~~ → 中止（理由: v2 デプロイヤー鍵の紛失により新トークンで再デプロイ）。建玉 #2 と v2 の MPAPER の保有量は移さない
 - [x] v3 を testnet にデプロイする → 2026-11-06、19 tx（block 16603807〜16603833）。新しい RebateToken（"Mezo Paper"／`MPAPER`）を含む。HouseExchange v3、両オラクル、RebateToken v3 の owner は timelock
-- [ ] エクスプローラでコントラクトを検証する
+- [x] エクスプローラでコントラクトを検証する → 2026-11-06、v3 の6つ（HouseExchange・SignedPriceOracle・PythPullOracle・RebateToken・RebateStaking・TimelockController）を Blockscout で検証済み（`forge verify-contract --verifier blockscout --verifier-url https://api.explorer.test.mezo.org/api/`）
 - [ ] ~~timelock 経由で RebateToken の `setMinter` と `setStaking` を v3 に向ける（操作 A）~~ → 中止（理由: v2 デプロイヤー鍵の紛失により新トークンで再デプロイ）。新しいトークンはデプロイの中で minter = HouseExchange v3、staking = RebateStaking v3 に設定済み
 - [x] keeper-worker: アドレスを設定から読むように変える。tick で `rebalance()` と `forwardBtc()` を呼ぶ。Worker の再デプロイ → 2026-11-06 に v3 で再デプロイ（`EXCHANGE_ADDRESS`・`ORACLE_ADDRESS` = v3、`SP_OPS = "1"`）。keeper に 0.0001 BTC を送金済み
 - [x] timelock 操作 B（`setSpParams(true, 50e18, 5000, 2000)`）を実行する → 実行済み（2026-11-06、spEnabled = true）。schedule（id `0xbdef…0d35`、実行可能 2026-11-06 15:41:23 JST）。execute の tx: `0x1cf7de08e02f9628c34c075f7695ddd8049891a4851f8f6b72af68a9cc4b25a0`
 - [x] v3 のアドレスを deployments に記録する → `deployments/testnet-v3.json`。v2 は `deployments/testnet.json` のまま残す
-- [ ] 本番フロントの `deployment.testnet.json` を v3 に切り替えて再デプロイする（**実行前にユーザーの確認が必要**）
+- [x] 本番フロントの `deployment.testnet.json` を v3 に切り替えて再デプロイする → 2026-11-06、https://bustline.planz.workers.dev（Workers の静的配信、`frontend/wrangler.jsonc`）。keeper Worker も同じ Cloudflare アカウントへ移した（KV を新規作成）。旧アカウントの Pages と旧 keeper はオーナーが停止する
 
 ## A. 入金の3経路（フロント）
 

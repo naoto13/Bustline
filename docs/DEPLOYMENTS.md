@@ -1,10 +1,10 @@
 # Deployments — Mezo testnet (chainId 31611)
 
-RPC `https://rpc.test.mezo.org` · Explorer `https://explorer.test.mezo.org` · Frontend https://bustline-c8p.pages.dev
+RPC `https://rpc.test.mezo.org` · Explorer `https://explorer.test.mezo.org` · Frontend https://bustline.planz.workers.dev
 
 Unaudited demo. **Current state (2026-11-06):** the v3 contracts and the keeper Worker are live on v3. The production
-frontend has **not** been switched yet and still reads the frozen v2 market, so its price and fills no longer move.
-Explorer verification of v3 is pending.
+frontend reads v3 at https://bustline.planz.workers.dev (Cloudflare Workers static assets, 2026-11-06).
+All six v3 contracts are verified on the explorer (Blockscout, 2026-11-06).
 
 ## v3 (Wave 2, current) — `deployments/testnet-v3.json`
 
@@ -80,7 +80,10 @@ There is no op A any more: the RebateToken is new and was wired before ownership
    `0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
 5. After the delay, the deployer called `execute(HouseExchange v3, 0, payload, 0x0, salt)` (tx `0x1cf7de08e02f9628c34c075f7695ddd8049891a4851f8f6b72af68a9cc4b25a0`).
 6. To do: verify the v3 contracts on the explorer.
-7. To do: point the production frontend's `deployment.testnet.json` at `deployments/testnet-v3.json` and redeploy it.
+7. Copied `deployments/testnet-v3.json` to `frontend/public/deployment.testnet.json`, built the static site and deployed it
+   with `wrangler deploy` (`frontend/wrangler.jsonc`). The keeper Worker was redeployed to the same Cloudflare account
+   (new KV namespace, same v3 vars and secrets); the Wave 1 Pages site and the old keeper Worker in the previous
+   account are being shut down by the owner.
 
 ## v2 (Wave 1, frozen) — `deployments/testnet.json`
 

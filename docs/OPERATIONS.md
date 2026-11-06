@@ -5,7 +5,7 @@ Mezo testnet only (chainId `31611`, `https://rpc.test.mezo.org`). Addresses of t
 
 **Current state (2026-11-06).** v3 (`deployments/testnet-v3.json`) is the live market and the keeper Worker runs on
 it. v2 (`deployments/testnet.json`) is frozen: its single owner/keeper/signer key was lost, so the v2 commands below
-are kept for reference only. The production frontend still reads v2 until it is switched.
+are kept for reference only. The production frontend (https://bustline.planz.workers.dev) reads v3.
 
 **Key roles (v3).** Three different keys, all stored outside git (never committed, never printed):
 
@@ -63,7 +63,7 @@ $OPS --deployment ../deployments/testnet-demo.json --confirm set-price 84000   #
 ### Cloudflare Worker (live)
 
 The testnet keeper runs as the Worker **`bustline-keeper`** (`keeper-worker/`,
-health: https://bustline-keeper.m9m1c3.workers.dev/health), so the demo doesn't depend on a server. It is a
+health: https://bustline-keeper.planz.workers.dev/health), so the demo doesn't depend on a server. It is a
 TypeScript + viem port of one Python keeper poll (`monitor.Keeper.poll_once` with the keeper-signed price source),
 without Telegram.
 
@@ -94,7 +94,7 @@ $W deploy
 printenv KEEPER_KEY | $W secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
 printenv PRICE_SIGNER_KEY | $W secret put PRICE_SIGNER_PRIVATE_KEY   # a different key from the keeper
 $W tail --format pretty                                               # watch ticks
-curl -s https://bustline-keeper.m9m1c3.workers.dev/health
+curl -s https://bustline-keeper.planz.workers.dev/health
 ```
 
 Run only **one** keeper per key, otherwise two processes race for nonces.
@@ -127,8 +127,8 @@ The price source follows `"oracleMode"` in the deployment file: `signed` → kee
 
 ## 4. Frontend
 
-The frontend reads the gitignored `frontend/public/deployment.testnet.json` at runtime. The production site still has
-the v2 file; switching it to v3 (pending) means copying `deployments/testnet-v3.json` there and redeploying.
+The frontend reads the gitignored `frontend/public/deployment.testnet.json` at runtime. The production site uses
+a copy of `deployments/testnet-v3.json`.
 
 Local, against a testnet deployment:
 
@@ -137,14 +137,16 @@ cp deployments/testnet-v3.json frontend/public/deployment.testnet.json
 cd frontend && pnpm install --frozen-lockfile && NEXT_PUBLIC_MODE=testnet pnpm build && pnpm start   # writes are signed by Mezo Passport
 ```
 
-Static build for Cloudflare Pages (live at https://bustline-c8p.pages.dev; the app is a single static page with no API
-routes, so `output: "export"` works; Wrangler needs Node ≥ 22):
+Static build on Cloudflare Workers static assets (live at https://bustline.planz.workers.dev; the app is a single static page with no API
+routes, so `output: "export"` works; Wrangler needs Node ≥ 22; `frontend/wrangler.jsonc` pins the Cloudflare account,
+because wrangler otherwise reuses the account cached in `node_modules/.cache/wrangler`):
 
 ```bash
 cd frontend
 pnpm install --frozen-lockfile
+cp ../deployments/testnet-v3.json public/deployment.testnet.json
 STATIC_EXPORT=1 NEXT_PUBLIC_MODE=testnet NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org pnpm exec next build
-pnpm dlx --package node@22 --package wrangler@latest wrangler pages deploy out --project-name bustline --branch main
+pnpm dlx --package node@22 --package wrangler@latest wrangler deploy
 ```
 
 Package manager: both `frontend/` and `keeper-worker/` use **pnpm** (`packageManager` in each `package.json`; settings

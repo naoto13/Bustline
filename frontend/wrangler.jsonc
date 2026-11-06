@@ -1,0 +1,15 @@
+// Static frontend on Cloudflare Workers (static assets only, no Worker script).
+// Build first: STATIC_EXPORT=1 NEXT_PUBLIC_MODE=testnet NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org pnpm exec next build
+// Then:        pnpm dlx --package node@22 --package wrangler@latest wrangler deploy
+// out/deployment.testnet.json comes from frontend/public/deployment.testnet.json (copy of deployments/testnet-v3.json).
+{
+  "name": "bustline",
+  // Pin the account: wrangler otherwise reuses the account cached in node_modules/.cache/wrangler.
+  "account_id": "cf45610bbc3fc7f71062352c48721f7a",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": true
+}

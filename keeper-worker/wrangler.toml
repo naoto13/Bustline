@@ -2,13 +2,15 @@ name = "bustline-keeper"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
 workers_dev = true
+# Pin the account: wrangler otherwise reuses the account cached in node_modules/.cache/wrangler.
+account_id = "cf45610bbc3fc7f71062352c48721f7a"
 
 [triggers]
 crons = ["* * * * *"]
 
 [[kv_namespaces]]
 binding = "KEEPER_STATE"
-id = "775a3796c17a4990b665ac9c76aaa4bf"
+id = "715b3de67fcf461a89def294c856f16b"
 
 [vars]
 RPC_URL = "https://rpc.test.mezo.org"
