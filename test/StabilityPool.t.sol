@@ -338,8 +338,52 @@ contract StabilityPoolTest is Base {
         assertEq(ex.spDeposit(), 500e18);
         vm.prank(owner);
         ex.setFees(200, 200, 200, 50, 0);
-        assertEq(ex.sweepExcess(), 100e18, "never more than the cash on hand");
+        assertEq(ex.sweepExcess(), 0, "SP deposit outstanding: cash stays at spMinLiquid");
+        assertEq(ex.houseCash(), 100e18);
+        _check();
+    }
+
+    /// With no SP deposit, the liquid floor does not apply: all cash above the cap may be swept (pre-SP behaviour).
+    function test_sp_sweepExcessWithoutSpDepositSweepsAllAboveCap() public {
+        _seedHouse(1_000e18);
+        _stake(bob, 10e18); // cash 1010, no SP deposit
+        assertEq(ex.spDeposit(), 0);
+        vm.prank(owner);
+        ex.setFees(200, 200, 200, 50, 0);
+        assertEq(ex.sweepExcess(), 1_010e18);
         assertEq(ex.houseCash(), 0);
+        _check();
+    }
+
+    /// Review finding: cash 5m + SP ~5m with cap 5m must not sweep cash below spMinLiquid; if SP withdrawals are then
+    /// blocked, a winner is still paid from the liquid floor.
+    function test_sp_sweepExcessKeepsMinLiquid_thenBlockedSpWinnerSettlesFromFloor() public {
+        vm.prank(owner);
+        ex.setSpParams(true, 1_000e18, 5_000, 2_000); // floor 1,000
+        for (uint256 i; i < 100; ++i) {
+            _seedHouse(100_000e18); // maxPositionSize 1m notional → 100k margin at 10x
+        }
+        ex.rebalance(); // 50% cap → cash 5m, SP 5m
+        assertEq(ex.houseCash(), 5_000_000e18);
+        assertEq(ex.spDeposit(), 5_000_000e18);
+        _stake(bob, 10e18); // stakers active; cash 5m + 10
+        assertEq(ex.houseCap(), 5_000_000e18);
+        uint256 swept = ex.sweepExcess();
+        assertEq(swept, 5_000_000e18 + 10e18 - 1_000e18, "capped by the liquid floor, not by assets - cap");
+        assertEq(ex.houseCash(), 1_000e18, "cash >= spMinLiquid");
+        assertGe(ex.houseCash(), ex.spMinLiquid());
+        _check();
+        // SP withdrawals blocked: a winner still settles out of the floor
+        sp.setBlocked(true);
+        uint256 pid = _open(alice, true, 1_000e18, 10, P0); // 10k long
+        (, uint256 receive_) = ex.previewClose(pid, P0 * 1005 / 1000);
+        uint256 payout = receive_ - 1_000e18;
+        assertGt(payout, 0);
+        assertLe(payout, 1_000e18, "fits in the floor");
+        _close(alice, pid, P0 * 1005 / 1000);
+        assertFalse(ex.getPosition(pid).open, "settled");
+        assertEq(ex.queueTotal(), 0, "not queued");
+        assertEq(musd.balanceOf(alice), receive_, "paid in full from cash");
         _check();
     }
 

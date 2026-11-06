@@ -39,6 +39,8 @@ contract RebateStaking is ReentrancyGuard {
     event Unstaked(address indexed user, uint256 amount);
     event Claimed(address indexed user, uint256 amount);
     event ClaimedBtc(address indexed user, uint256 amount);
+    event ClaimedBtcTo(address indexed user, address indexed to, uint256 amount);
+    event BtcClaimFailed(address indexed user, uint256 amount);
     event RewardNotified(uint256 amount);
     event RewardBtcNotified(uint256 amount);
 
@@ -80,21 +82,43 @@ contract RebateStaking is ReentrancyGuard {
         emit Unstaked(msg.sender, amount);
     }
 
-    /// @notice Pays both rewards: MUSD (`amount`) and native BTC (`btcAmount`). Reverts if the BTC transfer fails.
+    /// @notice Pays both rewards: MUSD (`amount`) always, native BTC (`btcAmount`) to `msg.sender` if it accepts it.
+    /// @dev Never reverts because of the BTC leg: if the native send fails (e.g. a contract without `receive`), the BTC
+    ///      stays owed (`owedBtc`), `BtcClaimFailed` is emitted and `btcAmount` is 0 (the amount actually paid). Such a
+    ///      staker can route its BTC elsewhere with `claimBtcTo`. CEI: state is zeroed before any external call.
     function claim() external nonReentrant returns (uint256 amount, uint256 btcAmount) {
         _settle(msg.sender);
         _sync(msg.sender);
         amount = owed[msg.sender];
-        btcAmount = owedBtc[msg.sender];
+        uint256 btcOwed = owedBtc[msg.sender];
         owed[msg.sender] = 0;
         owedBtc[msg.sender] = 0;
         if (amount > 0) rewardToken.safeTransfer(msg.sender, amount);
-        if (btcAmount > 0) {
-            (bool ok,) = msg.sender.call{ value: btcAmount }("");
-            if (!ok) revert BtcTransferFailed();
+        if (btcOwed > 0) {
+            (bool ok,) = msg.sender.call{ value: btcOwed }("");
+            if (ok) {
+                btcAmount = btcOwed;
+            } else {
+                owedBtc[msg.sender] = btcOwed; // keep it owed; claimable later or via claimBtcTo
+                emit BtcClaimFailed(msg.sender, btcOwed);
+            }
         }
         emit Claimed(msg.sender, amount);
         emit ClaimedBtc(msg.sender, btcAmount);
+    }
+
+    /// @notice Pays only the caller's BTC reward, to `to` (for stakers that cannot receive native BTC themselves).
+    ///         Reverts with `BtcTransferFailed` if the send to `to` fails (nothing changes). MUSD is untouched.
+    function claimBtcTo(address payable to) external nonReentrant returns (uint256 btcAmount) {
+        _settle(msg.sender);
+        _sync(msg.sender);
+        btcAmount = owedBtc[msg.sender];
+        owedBtc[msg.sender] = 0;
+        if (btcAmount > 0) {
+            (bool ok,) = to.call{ value: btcAmount }("");
+            if (!ok) revert BtcTransferFailed();
+        }
+        emit ClaimedBtcTo(msg.sender, to, btcAmount);
     }
 
     function pending(address u) external view returns (uint256) {

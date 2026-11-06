@@ -14,8 +14,12 @@ contract RejectsBtc {
         st.stake(amt);
     }
 
-    function claim(RebateStaking st) external {
-        st.claim();
+    function claim(RebateStaking st) external returns (uint256 musd, uint256 btc) {
+        return st.claim();
+    }
+
+    function claimBtcTo(RebateStaking st, address payable to) external returns (uint256) {
+        return st.claimBtcTo(to);
     }
 }
 
@@ -111,14 +115,71 @@ contract RebateStakingV3Test is Test {
         empty.notifyRewardBtc{ value: 1 }();
     }
 
-    function test_v3_claimRevertsIfBtcCannotBeDelivered() public {
+    /// A staker that cannot receive native BTC still gets its MUSD; the BTC stays owed (not reverted, not lost).
+    function test_v3_claimPaysMusdAndKeepsBtcOwedIfBtcCannotBeDelivered() public {
+        RejectsBtc c = new RejectsBtc();
+        rt.mint(address(c), 1e18);
+        c.go(st, rt, 1e18); // total staked 5e18; c has 1/5
+        _rewardMusd(5e18);
+        _rewardBtc(5 ether);
+        vm.expectEmit(address(st));
+        emit RebateStaking.BtcClaimFailed(address(c), 1 ether);
+        (uint256 m, uint256 b) = c.claim(st);
+        assertEq(m, 1e18, "MUSD paid");
+        assertEq(b, 0, "btcAmount = actually paid");
+        assertEq(musd.balanceOf(address(c)), 1e18);
+        assertEq(st.owedBtc(address(c)), 1 ether, "BTC still owed");
+        assertEq(st.pendingBtc(address(c)), 1 ether);
+        assertEq(st.pending(address(c)), 0);
+        assertEq(address(st).balance, 5 ether);
+        // a second claim does not double-count anything
+        (m, b) = c.claim(st);
+        assertEq(m, 0);
+        assertEq(b, 0);
+        assertEq(st.owedBtc(address(c)), 1 ether);
+    }
+
+    function test_v3_claimBtcToRoutesBtcElsewhere() public {
         RejectsBtc c = new RejectsBtc();
         rt.mint(address(c), 1e18);
         c.go(st, rt, 1e18);
         _rewardBtc(5 ether);
+        c.claim(st); // BTC fails, stays owed
+        address payable dest = payable(makeAddr("dest"));
+        assertEq(c.claimBtcTo(st, dest), 1 ether);
+        assertEq(dest.balance, 1 ether);
+        assertEq(st.owedBtc(address(c)), 0);
+        assertEq(st.pendingBtc(address(c)), 0);
+        assertEq(address(st).balance, 4 ether);
+        // later rewards accrue normally and can be routed again
+        _rewardBtc(5 ether);
+        assertEq(c.claimBtcTo(st, dest), 1 ether);
+        assertEq(dest.balance, 2 ether);
+    }
+
+    function test_v3_claimBtcToRevertsIfDestinationRejects() public {
+        RejectsBtc c = new RejectsBtc();
+        rt.mint(address(c), 1e18);
+        c.go(st, rt, 1e18);
+        _rewardBtc(5 ether);
+        RejectsBtc other = new RejectsBtc();
         vm.expectRevert(RebateStaking.BtcTransferFailed.selector);
-        c.claim(st);
-        assertGt(st.pendingBtc(address(c)), 0, "still owed");
+        c.claimBtcTo(st, payable(address(other)));
+        assertEq(st.pendingBtc(address(c)), 1 ether, "still owed");
+    }
+
+    function test_v3_claimBtcToLeavesMusdUntouched() public {
+        _rewardMusd(4e18);
+        _rewardBtc(4 ether);
+        address payable dest = payable(makeAddr("dest"));
+        vm.prank(alice);
+        assertEq(st.claimBtcTo(dest), 1 ether);
+        assertEq(dest.balance, 1 ether);
+        assertEq(st.pending(alice), 1e18, "MUSD still pending");
+        vm.prank(alice);
+        (uint256 m, uint256 b) = st.claim();
+        assertEq(m, 1e18);
+        assertEq(b, 0);
     }
 
     function testFuzz_v3_neverOwesMoreThanReceived(uint96 a, uint96 b, uint96 r1, uint96 r2) public {

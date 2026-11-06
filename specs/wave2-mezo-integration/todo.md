@@ -66,4 +66,6 @@
 - [x] README（Built for Mezo、What's live vs mocked、Security & limitations、Wave log）を更新する → 2026-11-06 に v3 のデプロイを反映
 - [x] docs/DEPLOYMENTS.md と docs/OPERATIONS.md を更新する → 2026-11-06（v3 のアドレス、鍵の役割、timelock 操作、v2 の凍結）
 - [x] テスト件数を README に反映する → 2026-11-06: Foundry 単体・ファジング 80、fork 44、keeper 23
-- [ ] 独立レビュー（on-chain、金額計算に当たるので必須）
+- [x] 独立レビュー（on-chain、金額計算に当たるので必須） → 2026-11-06 Codex（gpt-5.6-terra）で2回。1回目 fail（`claim()` が BTC を受け取れない staker で MUSD ごと revert、`sweepExcess()` が `spMinLiquid` を割る）→ 両方修正し回帰テストを追加（85 件）。2回目は sweep 解消、残り major 1 件は backlog
+- [ ] backlog: `claim()` の BTC 送金先がガスを使い切ると tx 全体が revert する（2回目のレビューの major）。被害は受取側の staker 本人だけで、`claimBtcTo` で逃がせる。固定 stipend は proxy 型ウォレットを壊すため見送り。必要なら上限付きガス（例 50k）を検討
+- [ ] 修正後のコントラクトの再デプロイ（v3 は 2026-11-06 時点のコードのまま）

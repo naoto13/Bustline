@@ -608,13 +608,19 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     }
 
     /// @notice Sweep house assets (cash + SP deposit) above `houseCap` to stakers (only when no winner is queued).
-    ///         Only on-hand `houseCash` is sent; the SP deposit is never withdrawn for this.
+    ///         Only on-hand `houseCash` is sent; the SP deposit is never withdrawn for this. While the house has an SP
+    ///         deposit, the sweep never takes `houseCash` below `spMinLiquid` (the liquid floor that pays winners when
+    ///         SP withdrawals are blocked). With no SP deposit, all cash above the cap may be swept.
     function sweepExcess() external nonReentrant returns (uint256 amount) {
         if (!_queueEmpty()) return 0;
-        uint256 assets = houseCash + spDeposit();
+        uint256 dep = spDeposit();
+        uint256 assets = houseCash + dep;
         if (assets <= houseCap) return 0;
         if (!_stakersActive()) return 0;
-        amount = Math.min(assets - houseCap, houseCash);
+        uint256 sendable = houseCash;
+        if (dep > 0) sendable = houseCash > spMinLiquid ? houseCash - spMinLiquid : 0;
+        amount = Math.min(assets - houseCap, sendable);
+        if (amount == 0) return 0;
         houseCash -= amount;
         _toStakers(amount);
     }

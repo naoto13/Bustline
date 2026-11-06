@@ -128,6 +128,7 @@ v2（凍結）では owner、keeper、価格署名者が同じ EOA（`0x715211CA
 - 会計の恒等式は v2 と同じ: `accountingDelta = MUSD.balanceOf(this) − (houseCash + totalMargin + totalEscrow) == 0`。SP に預けた分はコントラクトの残高にも `houseCash` にも入らないので、恒等式は崩れない
 - `houseEquity()` = `houseCash + spDeposit() − queueTotal`
 - `sweepExcess` の判定は `houseCash + spDeposit()` と `houseCap` で行い、送るのは手元の `houseCash` からだけ
+  - SP に預入があるとき（`spDeposit() > 0`）は、送った後の `houseCash` が `spMinLiquid` 以上に残る分までしか送らない。SP の出金が止まっても、手元の最低額で勝ちを払えるようにするため。預入がないときは今までどおり
 - **SP に入れるのは `houseCash` だけ。** `totalMargin` と `totalEscrow` は返金の義務があるので入れない
 
 #### パラメータ（owner = timelock が設定）
@@ -172,7 +173,9 @@ v2（凍結）では owner、keeper、価格署名者が同じ EOA（`0x715211CA
 
 - v2 の MUSD の配当に、ネイティブ BTC の配当を足す。配当は reward-per-token の積み上げを、MUSD と BTC で別々に持つ
 - `notifyRewardBtc() payable`: funder（HouseExchange v3）だけが呼べる
-- `claim()`: MUSD と BTC の両方を払う。BTC は `call{value}` で送り、失敗したら revert する。`nonReentrant` を付ける。戻り値は `(uint256 musd, uint256 btc)`
+- `claim()`: MUSD と BTC の両方を払う。`nonReentrant` を付ける。戻り値は `(uint256 musd, uint256 btc)`（`btc` は実際に払った額）
+  - MUSD は必ず払う。BTC は `call{value}` で送り、失敗しても revert しない。BTC は `owedBtc` に残し、イベント `BtcClaimFailed(user, amount)` を出す
+- `claimBtcTo(address payable to)`: BTC だけを `to` に送る（BTC を受け取れないコントラクトのステーカー向け）。送金に失敗したら revert する。`nonReentrant` を付ける
 - `funder` は v2 と同じく immutable
 
 #### リスクと対処
