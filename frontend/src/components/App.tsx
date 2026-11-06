@@ -263,7 +263,7 @@ function Dashboard() {
         <a href="https://github.com/naoto13/Bustline" target="_blank" rel="noreferrer" className="muted">Docs</a>
       </nav>
       <div className="navr">
-        <span className="chip tag-testnet">TESTNET · UNAUDITED</span>
+        <span className="chip tag-testnet">TESTNET</span>
         {readOnly && <span className="chip tag-ro" title="?viewAs preview — wallet actions are disabled">READ-ONLY · {short(who!)}</span>}
         {who && <span className="navbal"><span className="k">MUSD</span> <b className="num">{num(us?.musd)}</b></span>}
         {MODE === "local" ? (
