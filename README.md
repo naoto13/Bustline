@@ -79,7 +79,7 @@ the v2 live-liquidation proof and the earlier v1 markets: [`docs/DEPLOYMENTS.md`
 | HouseExchange v3 (Stability Pool), RebateStaking v3 (MUSD + BTC rewards), MUSD PriceFeed bound, TimelockController, new RebateToken | **Deployed 2026-11-06** ([addresses](docs/DEPLOYMENTS.md#v3-wave-2-current--deploymentstestnet-v3json)). Stability Pool enabled through the timelock (`setSpParams`, 2026-11-06). All six contracts verified on the explorer |
 | Keeper-worker v3 support (`rebalance` / `forwardBtc`, configurable addresses, separate price-signer key) | **Live**: the Worker was redeployed on v3 with `SP_OPS = "1"` and new keeper / price-signer keys |
 | Production frontend | **Live on v3** at https://bustline.planz.workers.dev (2026-11-06) |
-| "Start with BTC" / "From my trove" funding routes in the frontend | **In the repo, not on the live site.** Read-only views checked on testnet; the signed flows (`openTrove`, `withdrawMUSD`, `repayMUSD`) are not yet verified with real wallets |
+| "Start with BTC" / "From my trove" funding routes in the frontend | **Live on the v3 site (2026-11-06).** Read-only views checked on testnet; the signed flows (`openTrove`, `withdrawMUSD`, `repayMUSD`) are not yet verified with real wallets |
 
 ## What it is
 
@@ -230,6 +230,8 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
   yet tuned for Mezo.
 
 ## Wave log
+
+Per-wave details and tags: [CHANGELOG.md](CHANGELOG.md).
 
 | Wave | Dates | Shipped |
 |---|---|---|
