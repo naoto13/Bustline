@@ -6,6 +6,28 @@ Unaudited demo. **Current state (2026-11-06):** the v3 contracts and the keeper 
 frontend reads v3 at https://bustline.planz.workers.dev (Cloudflare Workers static assets, 2026-11-06).
 All six v3 contracts are verified on the explorer (Blockscout, 2026-11-06).
 
+## v3.1 — pending deploy (`deployments/testnet-v3.1.json`)
+
+**Not deployed yet.** No addresses until the broadcast has happened and been checked against
+`broadcast/DeployTestnetV3_1.s.sol/31611/run-latest.json`.
+
+What changes from v3: emergency pause (`guardian` can `pause()`, only the timelock can `unpause()`) and a 1% protocol
+fee on winning profit to `treasury` (`protocolFeeBps` = 100). The deployment file will have the v3 keys plus
+`Guardian`, `Treasury` and `ProtocolFeeBps`. Pause / resume runbook: [`OPERATIONS.md`](OPERATIONS.md#5-emergency-pause-v31).
+
+| Contract / role | Address | Deploy tx |
+|---|---|---|
+| TimelockController | pending deploy | — |
+| HouseExchange v3.1 | pending deploy | — |
+| SignedPriceOracle / PythPullOracle | pending deploy | — |
+| RebateToken / RebateStaking | pending deploy | — |
+| Guardian | pending deploy | — |
+| Treasury | pending deploy | — |
+
+After the deploy: copy the file to `frontend/public/deployment.testnet.json` (the frontend reads `paused()`,
+`protocolFeeBps()` and `totalProtocolFees()` and falls back gracefully on v3), point the keeper Worker's
+`EXCHANGE_ADDRESS` / `ORACLE_ADDRESS` at v3.1, and record the timelock operations here.
+
 ## v3 (Wave 2, current) — `deployments/testnet-v3.json`
 
 Deployed 2026-11-06 by `script/DeployTestnetV3.s.sol` in one broadcast (19 txs, blocks 16603807–16603833). Owner of

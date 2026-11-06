@@ -5,7 +5,7 @@ import { BTC_FAUCET_URL, EXPLORER_URL } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: "Docs — Bustline",
-  description: "How Bustline works: 2-step fills, bust lines, the house and payout queue, MPAPER, oracles, governance and contracts. Mezo testnet only, unaudited.",
+  description: "How Bustline works: 2-step fills, bust lines, the house and payout queue, MPAPER, fees, oracles, governance and contracts. Mezo testnet only, unaudited.",
 };
 
 const REPO = "https://github.com/naoto13/Bustline";
@@ -16,6 +16,7 @@ const TOC: [id: string, label: string][] = [
   ["funding", "Funding a trade"],
   ["house", "The house & payout queue"],
   ["mpaper", "MPAPER & staking"],
+  ["fees", "Fees & revenue"],
   ["prices", "Prices & oracles"],
   ["governance", "Governance & keys"],
   ["contracts", "Contracts"],
@@ -131,11 +132,13 @@ export default function DocsPage() {
               ["To stakers", <><span className="num">2% of margin</span> (only when the queue is empty)</>],
             ]} />
 
-            <h3>Wins: impact haircut and win fee</h3>
+            <h3>Wins: impact haircut and fees</h3>
             <p>
               A winning close is measured <span className="num">entry/50,000</span> worse (deadband), then scaled by an asymmetric
-              impact haircut that depends on the size of the move and the position, then charged a <b>2% win fee</b>. You keep
-              roughly <span className="num">88%</span> of the raw gain at a 1% move and <span className="num">74%</span> at a 0.1% move.
+              impact haircut that depends on the size of the move and the position. Two fees are taken from that adjusted gain:{" "}
+              <b>2% to MPAPER stakers</b> and, from v3.1, a <b>1% protocol fee</b> to the treasury (see{" "}
+              <a className="docs-link" href="#fees">Fees &amp; revenue</a>). Fees apply only when the profit is paid in full right
+              away; a queued or partial payout is fee-free.
             </p>
             <h3>Losses</h3>
             <p>
@@ -220,6 +223,31 @@ export default function DocsPage() {
             <p className="docs-muted"><code>claim()</code> pays both. MPAPER and stakes from the earlier v2 market were not carried over.</p>
           </section>
 
+          <section id="fees">
+            <h2>Fees &amp; revenue</h2>
+            <p>
+              There is no seed capital, no LP and no funding rate. The house is funded only by trader losses, and a winner it
+              can’t pay in full waits in the FIFO queue. Fees come out of trading results only:
+            </p>
+            <div className="docs-tablewrap">
+              <table className="tbl docs-otbl">
+                <thead><tr><th>Fee</th><th>Charged on</th><th>Goes to</th></tr></thead>
+                <tbody>
+                  <tr><td className="docs-cname">Win fee</td><td><span className="num">2%</span> of the impact-adjusted gain</td><td>MPAPER stakers</td></tr>
+                  <tr><td className="docs-cname">Protocol fee (v3.1)</td><td><span className="num">1%</span> of the same gain</td><td>Treasury</td></tr>
+                  <tr><td className="docs-cname">Loss fee</td><td><span className="num">2%</span> of a loss, only when the queue is empty and someone stakes</td><td>MPAPER stakers</td></tr>
+                  <tr><td className="docs-cname">Liquidation</td><td><span className="num">0.5%</span> of margin / <span className="num">2%</span> of margin (queue empty)</td><td>Liquidator / stakers</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <ul className="docs-list">
+              <li>Win and protocol fees are collected only when the winner is paid in full right away, including when the payout is topped up from the Stability Pool. Queued and partial payouts never pay a fee, not even later at harvest.</li>
+              <li>The rest of every loss stays in the house and repays the queue first.</li>
+              <li><b>Operator revenue funds the keeper and the oracle.</b> The treasury share pays for the keeper’s gas and price updates, so running the market does not depend on outside capital.</li>
+            </ul>
+            <p className="docs-muted">The protocol fee is read on-chain (<code>protocolFeeBps</code>) and capped in the contract; it is changed only through the timelock.</p>
+          </section>
+
           <section id="prices">
             <h2>Prices &amp; oracles</h2>
             <p>
@@ -260,10 +288,23 @@ export default function DocsPage() {
             </p>
             <Facts rows={[
               ["Owner", "the timelock (proposer = deployer key; anyone can execute a ready operation)"],
+              ["Guardian (v3.1)", "set at deploy (the deployer key unless configured; never the keeper key) — can pause immediately, cannot unpause or change anything else"],
               ["Keeper", "separate key — fills, liquidations, price pushes, queue harvest, rebalance"],
               ["Price signer", "separate key — signs price reports only"],
             ]} />
-            <p className="docs-muted">A leaked keeper key cannot call owner functions. There is no emergency pause.</p>
+            <h3>Emergency pause (v3.1)</h3>
+            <p>
+              The guardian (or the owner) can call <code>pause()</code>, which takes effect in the same block. Only the timelock can
+              call <code>unpause()</code>, so resuming always waits the 1-hour delay and a guardian key alone cannot undo a pause.
+            </p>
+            <Facts rows={[
+              ["Blocked while paused", <>new positions (<code>requestOpen</code>), all fills (<code>executeOrder</code>), <code>liquidate</code>, <code>sweepExcess</code>, and Stability Pool deposits</>],
+              ["Still allowed", <><code>requestClose</code> (filled after unpause), <code>cancelExpired</code> refunds, <code>harvest</code>, pool withdrawals, <code>forwardBtc</code>, price pushes, and MPAPER stake / unstake / claim</>],
+            ]} />
+            <p className="docs-muted">
+              A close requested during a pause that expires before unpause can be cleared with <code>cancelExpired</code>; the
+              position stays open and can be closed again. A leaked keeper key cannot call owner functions.
+            </p>
           </section>
 
           <section id="contracts">
@@ -279,6 +320,7 @@ export default function DocsPage() {
               <li><b>Losses can be total.</b> At up to 100x, a small move can bust the full margin.</li>
               <li><b>Profit can wait.</b> If the house is short, winnings sit in the FIFO queue until later losses repay it.</li>
               <li><b>Stability Pool risk.</b> Trove liquidations can shrink the house’s pool deposit, and pool withdrawals are blocked while the lowest trove is below 110% ICR or the PriceFeed is down.</li>
+              <li><b>Pause halts liquidations too.</b> While paused, positions can’t be filled or liquidated; prices that move past a bust line during a pause settle only after unpause.</li>
               <li><b>Permissioned keeper.</b> A single keeper run by the team fills orders; unfilled orders become refundable after 5 minutes.</li>
               <li><b>Trove routes</b> are checked read-only on testnet; the signed flows are not yet verified with real wallets.</li>
             </ul>

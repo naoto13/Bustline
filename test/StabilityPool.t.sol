@@ -204,7 +204,10 @@ contract StabilityPoolTest is Base {
         _close(alice, pid, 108_000e18);
         assertEq(ex.queueTotal(), 0, "paid in full");
         assertEq(musd.balanceOf(alice), receive_);
-        assertEq(ex.spDeposit(), 1_000e18 - payout - ex.houseCash());
+        // v3.1: the top-up also covers the 1% protocol fee (no stakers: the win fee stays with the house)
+        uint256 pFee = musd.balanceOf(treasury);
+        assertGt(pFee, 0, "protocol fee collected");
+        assertEq(ex.spDeposit(), 1_000e18 - payout - pFee - ex.houseCash());
         _check();
     }
 
@@ -212,13 +215,15 @@ contract StabilityPoolTest is Base {
         _seedHouse(1_000e18);
         ex.rebalance(); // cash 500, SP 500
         uint256 pid = _bigWinner();
-        (, uint256 receive_) = ex.previewClose(pid, 108_000e18);
-        uint256 payout = receive_ - 1_000e18;
+        // v3.1: not settled in full → fee-free, the winner is owed the whole impact-adjusted gain
+        uint256 payout = _gainAt(pid, 108_000e18);
+        uint256 receive_ = 1_000e18 + payout;
         sp.setBlocked(true);
         _close(alice, pid, 108_000e18);
         assertFalse(ex.getPosition(pid).open, "settled");
         assertEq(musd.balanceOf(alice), 1_000e18 + 500e18, "margin + all cash on hand");
         assertEq(ex.queueTotal(), payout - 500e18, "rest queued");
+        assertEq(musd.balanceOf(treasury), 0, "no fee on a partial payout");
         assertEq(ex.houseCash(), 0);
         _check();
         // harvest while still blocked: no-op

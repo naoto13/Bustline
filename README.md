@@ -90,8 +90,8 @@ starts at 0 MUSD** and grows only from trader losses.
   later losses repay. Margin is always returned immediately; only profit can be queued.
 - **Losers** receive a **non-transferable rebate token, Mezo Paper (`MPAPER`)**, that can be **staked for MUSD revenue
   share** (fees + house cash above a cap).
-- **No funding, no spread.** Winning closes pay an asymmetric impact haircut + 2% win fee. Positions that cross their
-  bust price are liquidated in full.
+- **No funding, no spread.** Winning closes pay an asymmetric impact haircut, then a 2% win fee to stakers and (v3.1) a
+  1% protocol fee to the treasury. Positions that cross their bust price are liquidated in full.
 
 The result is a perp that can launch with zero liquidity and never pays out more than it holds: profit beyond house cash
 is queued, so house equity (`houseCash − queueTotal`) may go negative while the contract stays fully backed — the invariant
@@ -139,12 +139,26 @@ trader                       HouseExchange                      keeper
 | | |
 |---|---|
 | Market | BTC/USD, isolated margin, `size = margin × leverage`, 1–100x, min margin 10 MUSD, max size + per-side OI caps |
-| Wins | Deadband (exit measured `entry/50,000` worse) → `scale = (1−base)/(1 + 1/(move·rateMult) + refNotional/(1e6·move·posMult))` (BTC: base 10%, rateMult 15,000, refNotional $100k, posMult 814.598) → 2% win fee. ≈88% of raw gain kept at a 1% move, ≈74% at 0.1% |
+| Wins | Deadband (exit measured `entry/50,000` worse) → `scale = (1−base)/(1 + 1/(move·rateMult) + refNotional/(1e6·move·posMult))` (BTC: base 10%, rateMult 15,000, refNotional $100k, posMult 814.598) → 2% win fee to stakers (≈88% of raw gain kept at a 1% move, ≈74% at 0.1%) → v3.1: + 1% protocol fee to the treasury on the same adjusted gain. Both fees only when the winner is paid in full right away (incl. a Stability Pool top-up); queued / partial payouts are fee-free |
 | Losses | Lose up to the margin. 2% loss fee goes to stakers **only when the queue is empty and someone is staking**; otherwise 100% to the house |
 | Liquidation | Hard bust: trigger = zero-equity price moved 5 bps toward entry; full margin forfeited; 0.5% of margin to the liquidator, 2% to stakers (queue empty). A close that lands past the trigger is treated as a bust |
 | Payout queue | `harvest(n)` (anyone; auto-called on each loss) pays FIFO. New winners never jump the queue |
 | MPAPER | Minted on realised loss (liquidations: full margin): 100 / MUSD while house equity < threshold, then `flat·(S/(S+H))²` with a ratcheting high-water-mark H. Non-transferable (the owner can enable transfers) |
 | Staking | `stake / unstake / claim` MUSD (accumulator). Revenue: loss/win/liquidation fees + house cash above `houseCap` (`sweepExcess`) |
+
+### Revenue model
+
+| Who pays | What | Where it goes |
+|---|---|---|
+| Winning trader | 2% of the impact-adjusted gain | MPAPER stakers (MUSD) |
+| Winning trader (v3.1) | 1% of the same gain (`protocolFeeBps` = 100, capped in the contract) | Treasury — operator revenue that funds the keeper's gas and price updates |
+| Losing trader | The loss; 2% of it to stakers only when the queue is empty and someone stakes | House cash (repays the FIFO queue first), stakers |
+| Liquidated trader | Full margin; 0.5% to the liquidator, 2% to stakers when the queue is empty and someone stakes | Liquidator, stakers, house |
+| Stability Pool | BTC collateral gains on idle house MUSD (`forwardBtc`) | MPAPER stakers (BTC) |
+
+The house has **no seed capital by design**: it is funded only by trader losses, and profit it can't pay right away
+waits in the FIFO queue. Fees are only taken when a winner is paid in full on the spot; queued and partial payouts
+are fee-free, so the queue never pays the protocol.
 
 ## Oracle
 
@@ -207,7 +221,11 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
   OpenZeppelin `TimelockController` (testnet delay **1 hour**; mainnet should use 48 h or more). Proposer/canceller is
   the deployer; anyone can execute a ready operation. The owner (timelock proposer), keeper and price signer are three
   different keys, so a leaked keeper key cannot call owner functions. Production would still need a multisig proposer.
-- **No emergency pause.** Nothing bypasses the timelock, and there is no pause/guardian function in v2 or v3.
+- **Emergency pause (v3.1).** A `guardian` (or the owner) can `pause()` immediately; only the owner — the timelock —
+  can `unpause()`, so resuming always waits the delay. While paused, `requestOpen`, `executeOrder`, `liquidate`,
+  `sweepExcess` and Stability Pool deposits revert / are skipped; `requestClose` (filled after unpause),
+  `cancelExpired`, `harvest`, pool withdrawals, `forwardBtc`, price pushes and staking keep working. v2 and v3 have no
+  pause. Runbook: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#5-emergency-pause-v31).
 - **Stability Pool risk (v3).** Liquidations of troves below 100% ICR shrink the house's pool deposit (shown as a house
   loss in `houseEquity`). Pool withdrawals are blocked while the lowest-ICR trove is below MCR (110%) or the PriceFeed is
   down — typically during a BTC crash, when shorts are winning. v3 keeps `spMinLiquid` in cash, caps the pool share,
@@ -218,9 +236,9 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
   send one call per signature (no batching, no `signTypedData`), so "Start with BTC" is `openTrove` → `approve` (first
   time only) → `requestOpen`. If a later step fails, the borrowed MUSD stays in the trader's wallet and the flow resumes
   from that step (checked read-only so far, not yet with real signed transactions).
-- **Python keeper is v2-only.** `keeper/` (and its ABI in `keeper/abi`) has no v3 functions (`rebalance`, `forwardBtc`,
-  Stability Pool views) and defaults to `deployments/testnet.json` (frozen v2). Only the Cloudflare Worker keeper
-  supports v3, so there is no working fallback keeper for v3 today.
+- **Python keeper is legacy / v2-only.** `keeper/` (and its ABI in `keeper/abi`) has no v3 functions (`rebalance`, `forwardBtc`,
+  Stability Pool views), does not know the v3.1 pause, and defaults to `deployments/testnet.json` (frozen v2). Only the
+  Cloudflare Worker keeper supports v3 / v3.1, so there is no working fallback keeper today.
 - The v3 testnet market uses the keeper-signed oracle until a Pyth Hermes API key is configured; the Pyth path is
   deployed and tested.
 - The keeper set is permissioned (owner whitelist) so traders can't time their own fills; expired orders are refundable.
@@ -228,6 +246,24 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 - Anvil can't execute Mezo's Skip precompile, so local/fork runs use `MockOracle`; MUSD is the real bytecode.
 - Impact-haircut and mint-curve parameters start from published defaults of the reference designs below and are not
   yet tuned for Mezo.
+
+## Operations & mainnet path
+
+Today (testnet):
+
+- **Guardian pause (v3.1)** — immediate stop by the guardian; resume only through the timelock.
+- **Timelock, 1-hour delay** — every admin change (oracle, keepers, fees, Stability Pool params, unpause) is
+  scheduled and executed after the delay.
+- **One permissioned keeper on Cloudflare Workers** — cron every minute, fills / liquidations / price pushes / harvest /
+  rebalance, `/health` endpoint; it skips fills and liquidations while the exchange is paused. Runbook:
+  [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+Planned before mainnet:
+
+- Switch settlement to **Pyth pull** (`setOracle` to the deployed `PythPullOracle`) once a Hermes API key is set.
+- **Multisig** as timelock proposer (today the deployer EOA) and a longer delay (48 h+).
+- External **audit**.
+- **Caps** sized for launch: per-side OI caps, max position size and max leverage tuned to the house size.
 
 ## Wave log
 

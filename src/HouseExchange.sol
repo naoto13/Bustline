@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IPriceOracle } from "./interfaces/IPriceOracle.sol";
 import { IMezoStabilityPool, IMezoPriceFeed, IMezoSortedTroves, IMezoTroveManager } from "./interfaces/IMezo.sol";
@@ -21,8 +22,24 @@ import { RebateStaking } from "./RebateStaking.sol";
 ///         request (blocks "see the price, then trade at the stale oracle" attacks, cf. Mezo's Velar post-mortem).
 ///         v3: idle house MUSD (`houseCash` only — never margin/escrow) can be deposited into MUSD's Stability Pool
 ///         (`rebalance`); winners are topped up from it; its BTC collateral gains go to stakers (`forwardBtc`).
+///         v3.1: emergency pause + a protocol fee on winning profit to `treasury`.
+///         PAUSE — `pause()` by `guardian` or owner (immediate); `unpause()` by owner only (= the timelock).
+///           Blocked while paused (everything that consumes the exchange oracle price or adds risk / moves house cash
+///           out to stakers): `requestOpen`, `executeOrder` (all fills, incl. queued closes), `liquidate`,
+///           `sweepExcess`, and Stability Pool DEPOSITS (`rebalanceAction` never returns action 1, so `rebalance`
+///           only withdraws or no-ops).
+///           Allowed while paused: `requestClose` (queued; filled only after unpause — if it expires meanwhile it can
+///           be cleared with `cancelExpired` and the position stays open), `cancelExpired` (refunds), `harvest`
+///           (pays the queue from cash / SP withdrawals; never reads the exchange oracle), `rebalance` withdrawals,
+///           `forwardBtc`, `pushPrice`, all views, all owner admin functions, and RebateStaking stake/unstake/claim.
+///         PROTOCOL FEE — on a winning close: `gain` = impact-adjusted gain (the win-fee base);
+///           winFee = gain*winFeeBps/BPS (stakers), protocolFee = gain*protocolFeeBps/BPS (treasury),
+///           winner gets margin + gain − winFee − protocolFee. Fees are charged only on an immediate full settlement
+///           (queue empty and house cash — topped up from the Stability Pool if needed — covers payout + both fees).
+///           Otherwise no fee at all: the winner is owed the whole gain (paid what cash allows, the rest queued) and
+///           queued amounts are never charged later at harvest.
 /// @dev TESTNET DEMO / UNAUDITED. Independent implementation; mechanism inspired by public docs (see README).
-contract HouseExchange is Ownable, ReentrancyGuard {
+contract HouseExchange is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
 
     uint256 internal constant WAD = 1e18;
@@ -84,6 +101,10 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     uint256 public lossFeeBps = 200; // carved from loss (queue empty only)
     uint256 public liqFeeBps = 200; // of margin, to stakers (queue empty only)
     uint256 public liqKeeperBps = 50; // of margin, to liquidator (always)
+    uint256 public protocolFeeBps = 100; // v3.1: on the same scaled gain, to `treasury`
+    uint256 public constant MAX_PROTOCOL_FEE_BPS = 500;
+    address public treasury;
+    address public guardian; // v3.1: may pause (not unpause)
     uint256 public houseCap = 5_000_000e18; // house cash above this (queue empty) can be swept to stakers
     ImpactLib.Params public impact = ImpactLib.Params(0.1e18, 15_000, 814.598e18, 100_000e18, 50_000);
     // ---- mint curve: flat rate while tracked house < threshold, then flat*(S/(S+H))^2 with ratcheting HWM H ----
@@ -119,6 +140,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     uint256 public cumulativeLosses; // realised trader losses into the house
     uint256 public cumulativePaid; // paid to winners (direct + queue)
     uint256 public totalToStakers;
+    uint256 public totalProtocolFees; // MUSD sent to `treasury`
 
     Order[] internal _orders;
     Position[] internal _positions;
@@ -179,6 +201,10 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     event SpWithdrawn(uint256 requested, uint256 received);
     event SpWithdrawBlocked(uint256 requested);
     event BtcForwarded(uint256 amount);
+    event GuardianSet(address oldGuardian, address newGuardian);
+    event TreasurySet(address oldTreasury, address newTreasury);
+    event ProtocolFeeSet(uint256 bps);
+    event ProtocolFee(uint256 amount);
 
     error NotKeeper();
     error BadLeverage();
@@ -196,6 +222,9 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     error SpDepositOutstanding();
     error InsufficientGasForSp();
     error SpDepositMismatch();
+    error NotGuardian();
+    error BadTreasury(); // zero or this contract
+    error FeeTooHigh();
 
     modifier onlyKeeper() {
         if (!isKeeper[msg.sender] && msg.sender != owner()) revert NotKeeper();
@@ -206,6 +235,8 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         musd = IERC20(musd_);
         oracle = IPriceOracle(oracle_);
         rebateToken = RebateToken(rebateToken_);
+        if (owner_ == address(this)) revert BadTreasury(); // treasury defaults to owner_; never this contract
+        treasury = owner_;
     }
 
     // ===================================================================== admin
@@ -286,6 +317,35 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit ParamsUpdated();
     }
 
+    /// @notice Address allowed to `pause()` (besides the owner). address(0) = none.
+    function setGuardian(address g) external onlyOwner {
+        emit GuardianSet(guardian, g);
+        guardian = g;
+    }
+
+    function setTreasury(address t) external onlyOwner {
+        if (t == address(0) || t == address(this)) revert BadTreasury();
+        emit TreasurySet(treasury, t);
+        treasury = t;
+    }
+
+    function setProtocolFee(uint256 bps) external onlyOwner {
+        if (bps > MAX_PROTOCOL_FEE_BPS) revert FeeTooHigh();
+        protocolFeeBps = bps;
+        emit ProtocolFeeSet(bps);
+    }
+
+    /// @notice Emergency stop, effective immediately (guardian or owner). See the contract NatSpec for the list.
+    function pause() external {
+        if (msg.sender != guardian && msg.sender != owner()) revert NotGuardian();
+        _pause();
+    }
+
+    /// @notice Resume trading — owner only (the timelock in deployment), so a guardian key cannot undo a pause.
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     // ===================================================================== price
 
     /// @notice Verified oracle price (WAD USD/BTC) + its publish time; reverts if stale / out of the Skip sanity bound.
@@ -318,6 +378,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     function requestOpen(bool isLong, uint256 margin, uint256 leverage, uint256 acceptablePrice)
         external
         nonReentrant
+        whenNotPaused
         returns (uint256 orderId)
     {
         if (leverage == 0 || leverage > maxLeverage) revert BadLeverage();
@@ -391,7 +452,13 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     /// @notice Keeper fills a pending order at the oracle price, which must have been PUBLISHED strictly after the
     ///         request (Pyth publishTime / signed-report time). `priceUpdate` (may be empty) is pushed to the oracle first,
     ///         in the same tx; msg.value pays its fee. Business-rule failures (slippage, OI cap, expiry) cancel + refund.
-    function executeOrder(uint256 orderId, bytes[] calldata priceUpdate) external payable nonReentrant onlyKeeper {
+    function executeOrder(uint256 orderId, bytes[] calldata priceUpdate)
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+        onlyKeeper
+    {
         _pushPrice(priceUpdate);
         Order storage o = _orders[orderId];
         if (o.status != OrderStatus.Pending) revert NotPending();
@@ -458,9 +525,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         if (raw >= 0) {
             // margin always returned immediately; only the profit depends on house solvency
             musd.safeTransfer(to, margin);
-            uint256 fee = (gain * winFeeBps) / BPS;
-            uint256 payout = gain - fee;
-            (paidNow, queued) = _payWinner(to, payout, fee);
+            (paidNow, queued) = _payWinner(to, gain);
         } else {
             uint256 loss = Math.min(uint256(-raw), margin);
             uint256 back = margin - loss;
@@ -476,19 +541,38 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         emit PositionClosed(pid, to, price, raw, paidNow, queued, lossToHouse);
     }
 
-    function _payWinner(address to, uint256 payout, uint256 fee) internal returns (uint256 paidNow, uint256 queued) {
+    /// @dev Fees are charged ONLY on an immediate full settlement: queue empty and the house (cash, topped up from the
+    ///      SP if needed) covers `need` = payout + protocol fee + (win fee if stakers are active). Then the winner gets
+    ///      gain − winFee − protocolFee now; the win fee goes to stakers (no stakers: it stays with the house) and the
+    ///      protocol fee to `treasury`. Otherwise NO fee is charged: the winner is owed the whole `gain`, gets whatever
+    ///      cash there is now and the rest (`gain − paidNow`) is queued — never charged later at harvest.
+    function _payWinner(address to, uint256 gain) internal returns (uint256 paidNow, uint256 queued) {
+        uint256 owed = gain;
         if (_queueEmpty()) {
-            if (houseCash < payout) _spPull(payout - houseCash); // best effort: blocked withdrawals → queue
-            paidNow = Math.min(payout, houseCash);
-            houseCash -= paidNow;
+            uint256 fee = (gain * winFeeBps) / BPS;
+            uint256 pFee = (gain * protocolFeeBps) / BPS;
+            bool st = _stakersActive();
+            uint256 payout = gain - fee - pFee;
+            uint256 need = payout + pFee + (st ? fee : 0);
+            if (houseCash < need) _spPull(need - houseCash); // best effort: blocked withdrawals → fee-free + queue
+            if (houseCash >= need) {
+                owed = payout;
+                paidNow = payout;
+                houseCash -= need;
+                if (st) _toStakers(fee);
+                if (pFee > 0) {
+                    totalProtocolFees += pFee;
+                    musd.safeTransfer(treasury, pFee);
+                    emit ProtocolFee(pFee);
+                }
+            } else {
+                paidNow = houseCash; // < need <= gain
+                houseCash = 0;
+            }
             if (paidNow > 0) musd.safeTransfer(to, paidNow);
             cumulativePaid += paidNow;
-            if (paidNow == payout && fee > 0 && _stakersActive() && houseCash >= fee) {
-                houseCash -= fee;
-                _toStakers(fee);
-            }
         }
-        queued = payout - paidNow;
+        queued = owed - paidNow;
         if (queued > 0) _enqueue(to, queued);
     }
 
@@ -499,7 +583,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
 
     /// @notice Permissionless liquidation at the current oracle price once the bust trigger is crossed.
     ///         `priceUpdate` (may be empty) is pushed to the oracle first; msg.value pays its fee.
-    function liquidate(uint256 positionId, bytes[] calldata priceUpdate) external payable nonReentrant {
+    function liquidate(uint256 positionId, bytes[] calldata priceUpdate) external payable nonReentrant whenNotPaused {
         _pushPrice(priceUpdate);
         Position storage pos = _positions[positionId];
         if (!pos.open) revert PositionNotOpen();
@@ -611,7 +695,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     ///         Only on-hand `houseCash` is sent; the SP deposit is never withdrawn for this. While the house has an SP
     ///         deposit, the sweep never takes `houseCash` below `spMinLiquid` (the liquid floor that pays winners when
     ///         SP withdrawals are blocked). With no SP deposit, all cash above the cap may be swept.
-    function sweepExcess() external nonReentrant returns (uint256 amount) {
+    function sweepExcess() external nonReentrant whenNotPaused returns (uint256 amount) {
         if (!_queueEmpty()) return 0;
         uint256 dep = spDeposit();
         uint256 assets = houseCash + dep;
@@ -673,7 +757,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
     ///         Bands: deposit when cash > min*(1+band), down to `spMinLiquid` (capped so the SP deposit stays <=
     ///         `spMaxShareBps` of cash+deposit); withdraw when cash < min*(1-band) or a winner is queued, up to
     ///         `spMinLiquid + queueTotal`. Disabled → withdraw everything. Deposits need an empty queue and an
-    ///         unblocked SP (so the house never deposits into a pool it cannot leave).
+    ///         unblocked SP (so the house never deposits into a pool it cannot leave), and no pause (v3.1).
     function rebalanceAction() public view returns (uint8 action, uint256 amount) {
         if (address(stabilityPool) == address(0)) return (0, 0);
         uint256 dep = spDeposit();
@@ -683,7 +767,7 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         if (dep > 0 && (cash < (spMinLiquid * (BPS - spBandBps)) / BPS || (queueTotal > 0 && cash < target))) {
             return (2, Math.min(target - cash, dep));
         }
-        if (_queueEmpty() && cash > (spMinLiquid * (BPS + spBandBps)) / BPS) {
+        if (!paused() && _queueEmpty() && cash > (spMinLiquid * (BPS + spBandBps)) / BPS) {
             uint256 cap = ((cash + dep) * spMaxShareBps) / BPS;
             uint256 amt = Math.min(cash - spMinLiquid, cap > dep ? cap - dep : 0);
             if (amt > 0 && spWithdrawable()) return (1, amt);
@@ -826,13 +910,15 @@ contract HouseExchange is Ownable, ReentrancyGuard {
         return _isBust(p, price);
     }
 
-    /// @notice Preview of a voluntary close at `price`: raw pnl, payout after haircut+fee (winners) or margin back (losers).
+    /// @notice Preview of a voluntary close at `price`: raw pnl, payout after haircut + win fee + protocol fee (winners,
+    ///         assuming an immediate full settlement; if the house cannot settle in full, no fee is charged and the
+    ///         winner is owed margin + gain, partly queued) or margin back (losers).
     function previewClose(uint256 id, uint256 price) external view returns (int256 raw, uint256 receive_) {
         Position storage p = _positions[id];
         raw = ImpactLib.rawPnl(p.isLong, p.size, p.entryPrice, price);
         if (raw >= 0) {
             uint256 g = ImpactLib.adjustedGain(impact, p.isLong, p.size, p.entryPrice, price);
-            receive_ = p.margin + g - (g * winFeeBps) / BPS;
+            receive_ = p.margin + g - (g * winFeeBps) / BPS - (g * protocolFeeBps) / BPS;
         } else {
             uint256 loss = Math.min(uint256(-raw), p.margin);
             receive_ = p.margin - loss;

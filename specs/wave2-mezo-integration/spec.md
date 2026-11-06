@@ -235,12 +235,56 @@ v2（凍結）では owner、keeper、価格署名者が同じ EOA（`0x715211CA
 - 遅延: testnet は 1 時間。デモの前にパラメータを調整できるようにするため。mainnet では 48 時間以上にすることを README に書く
 - proposer と canceller: デプロイヤーの EOA。executor: 誰でも（`address(0)`）
 - 鍵を3つに分ける: timelock の proposer（デプロイヤー）、keeper、価格署名者。keeper の鍵が漏れても、owner の権限は使えない
-- **timelock を通さないもの**: なし。緊急停止の機能は今回は作らない（README の制約に書く）
+- **timelock を通さないもの**: v3 ではなし。v3.1 で緊急停止（`pause()`）だけを guardian が timelock を通さずに実行できるようにした。解除（`unpause()`）は timelock を通す（5.5）
 
 受入条件:
 
 - [ ] owner 権限の関数をデプロイヤーが直接呼ぶと revert し、timelock から遅延後に実行すると成功する
 - [x] deployments の JSON に timelock、keeper、価格署名者の3つのアドレスが別々に記録されている → `deployments/testnet-v3.json`（2026-11-06）
+
+### 5.5 v3.1: 緊急停止とプロトコル手数料（2026-11-07）
+
+v3 のコードは変えずに残し、v3.1 として新しく一式をデプロイする（`script/DeployTestnetV3_1.s.sol`）。
+
+#### 緊急停止（pause）
+
+- 役割 `guardian`（アドレス）を追加する。owner（= timelock）が `setGuardian` で設定する。イベント `GuardianSet(old, new)`
+- `pause()`: guardian か owner が呼べる。すぐに効く。`unpause()`: owner だけ（= timelock を通すので遅延がかかる）。イベントは OpenZeppelin `Pausable` の `Paused(by)`／`Unpaused(by)`
+- 停止中に止めるもの（取引所の価格を使う操作と、リスクを増やす操作）
+  - `requestOpen`、`executeOrder`（新規も決済も、すべての約定）、`liquidate`、`sweepExcess`（revert `EnforcedPause`）
+  - Stability Pool への預け入れ: `rebalanceAction()` が預け入れ（action 1）を返さない。`rebalance()` 自体は revert しない（keeper が毎 tick 呼ぶため）
+- 停止中も使えるもの
+  - `requestClose`（受け付けるだけ。約定は再開後。`maxExecDelay` を過ぎたら `cancelExpired` で消せ、建玉は開いたまま残る）
+  - `cancelExpired`（新規注文の証拠金の返金）
+  - `harvest`（キューの支払い。手元と SP からの引き出しだけを使い、取引所のオラクルは読まない。SP の出金判定は MUSD 側の PriceFeed を使うが、建玉のリスクは増えない）
+  - `rebalance` による SP からの引き出し、`forwardBtc`、`pushPrice`、すべての view、owner の管理関数
+  - RebateStaking の stake／unstake／claim（価格を使わないので停止の対象外）
+
+#### プロトコル手数料
+
+- パラメータ: `protocolFeeBps`（初期値 100 = 1%、上限 `MAX_PROTOCOL_FEE_BPS` = 500）、`treasury`（0 アドレスとこのコントラクト自身は不可 = `BadTreasury`、初期値はコンストラクタの owner）。setter は `setProtocolFee`／`setTreasury`（owner のみ）。イベント `ProtocolFeeSet`、`TreasurySet`、`ProtocolFee(amount)`
+- 基準は既存の勝ち手数料（2%）と同じ `gain`（インパクト調整後の利益）
+  - `winFee = gain × winFeeBps / 10000`（ステーカーへ）、`protocolFee = gain × protocolFeeBps / 10000`（treasury へ）
+  - 勝者の受取 = `margin + gain − winFee − protocolFee`。`previewClose` も両方を引く
+- 手数料を取るのは「その場での全額決済」のときだけ: キューが空で、手元（足りなければ SP から補充）が `支払い額 + プロトコル手数料 + 勝ち手数料（ステーカーがいるときだけ）` を賄えるとき。勝ち手数料はステーカーへ（いなければハウスに残る）、プロトコル手数料は `treasury` に `safeTransfer` でその場で送る（貯めない）
+  - それ以外（キューが空でない、または賄えない）は**手数料を一切取らない**。勝者には `gain` の全額を払う義務があり、手元にある分をその場で払い、残り（`gain − 今払った額`）をキューに積む。後の `harvest` でも手数料はかけない（2026-11-07 のレビューで修正。以前は手数料を引いた額だけをキューに積み、差額が黙ってハウスに残っていた。v3 の勝ち手数料にも同じ問題があった）
+  - 支払い額は払えるが手数料までは賄えない場合も、同じく手数料なし（全額 `gain` を対象に、払える分を払い残りをキューへ）
+  - SP からの補充は、勝者の支払い額に、取る手数料（プロトコル手数料と、ステーカーがいれば勝ち手数料）を足した額まで行う。ハウスの資産（手元＋SP）が足りていれば、補充が必要な決済でも両方の手数料を取る（2026-11-07 決定）
+- 例（ステーカーなし）: 1,000 MUSD × 10倍のロング、100,000 → 101,000 で決済。raw 100、gain 88.1469、winFee 1.7629（ステーカーがいないのでハウスに残る）、protocolFee 0.8815（treasury へ）、受取 1,085.5025
+- 会計: 恒等式 `MUSD.balanceOf(this) == houseCash + totalMargin + totalEscrow` は変わらない（手数料はその場で外に出るので、新しい項は要らない）。累計 `totalProtocolFees` を持ち、`cumulativePaid + totalProtocolFees ≤ cumulativeLosses` と `treasury の残高 == totalProtocolFees` をファジングで確かめる
+
+#### デプロイ（v3.1）
+
+- v3 と同じ手順に、`setGuardian(GUARDIAN)`、`setTreasury(TREASURY)`、`setProtocolFee(100)` を加えてから owner を timelock に移す。`GUARDIAN`／`TREASURY` は env で指定でき、既定はデプロイヤー。guardian と keeper の鍵は分ける。`TIMELOCK_DELAY` は 3600 秒未満を拒否する
+- RebateToken も新しくする（minter と staking をデプロイ時に設定するため）。記録は `deployments/testnet-v3.1.json`（v3 のキーに `Guardian`、`Treasury`、`ProtocolFeeBps` を追加）
+- 後で timelock から実行する操作: B（`setSpParams(true, 50e18, 5000, 2000)`）、停止後の `unpause()`
+
+受入条件:
+
+- [x] 停止の役割と止める／止めない関数の単体テスト → `test/PauseAndProtocolFee.t.sol`、`test/Timelock.t.sol` `test_guardianPausesImmediately_unpauseOnlyViaTimelock`
+- [x] 手数料の単体テスト（例の数値、ステーカーあり、キュー、一部支払い、SP 補充で両方の手数料を取る、SP 停止時の免除、手数料なしとの比較のファジング（SP あり／なし））と、ファジングの会計の確認
+- [x] fork: v3.1 のデプロイスクリプトと、実 MUSD での手数料 → `test/fork/WaveTwoFork.t.sol`
+- [ ] testnet に v3.1 をデプロイする（未実施）
 
 ## 6. v2 → v3 への移行
 

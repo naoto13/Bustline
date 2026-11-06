@@ -8,6 +8,7 @@ import { RebateToken } from "../src/RebateToken.sol";
 import { RebateStaking } from "../src/RebateStaking.sol";
 import { MockOracle } from "../src/mocks/MockOracle.sol";
 import { MockERC20 } from "../src/mocks/MockERC20.sol";
+import { ImpactLib } from "../src/libraries/ImpactLib.sol";
 
 /// @notice Shared setup. `musd` is a MockERC20 in unit tests and the real testnet MUSD in fork tests.
 abstract contract Base is Test {
@@ -23,6 +24,7 @@ abstract contract Base is Test {
     address bob = makeAddr("bob");
     address carol = makeAddr("carol");
     address liquidator = makeAddr("liquidator");
+    address treasury = makeAddr("treasury");
 
     uint256 constant P0 = 100_000e18;
     bytes[] internal NO_UPD;
@@ -39,6 +41,7 @@ abstract contract Base is Test {
         rt.setStaking(address(st));
         ex.setStaking(address(st));
         ex.setKeeper(keeper, true);
+        ex.setTreasury(treasury); // v3.1: protocol fee recipient (dedicated, so its balance is checkable)
         vm.stopPrank();
     }
 
@@ -80,6 +83,13 @@ abstract contract Base is Test {
         ex.executeOrder(oid, NO_UPD);
     }
 
+    /// @dev Impact-adjusted gain of position `pid` closed at `exit` (the fee base; a fee-free winner is owed all of it).
+    function _gainAt(uint256 pid, uint256 exit) internal view returns (uint256) {
+        HouseExchange.Position memory p = ex.getPosition(pid);
+        (uint256 b, uint256 rm, uint256 pm, uint256 rn, uint256 dd) = ex.impact();
+        return ImpactLib.adjustedGain(ImpactLib.Params(b, rm, pm, rn, dd), p.isLong, p.size, p.entryPrice, exit);
+    }
+
     function _checkAccounting() internal view {
         assertEq(ex.accountingDelta(), 0, "MUSD held == houseCash + margin + escrow");
         uint256 sum;
@@ -88,5 +98,6 @@ abstract contract Base is Test {
             sum += a;
         }
         assertEq(sum, ex.queueTotal(), "queueTotal == sum(entries)");
+        assertEq(musd.balanceOf(treasury), ex.totalProtocolFees(), "treasury got exactly the protocol fees");
     }
 }

@@ -72,6 +72,7 @@ without Telegram.
 | Trigger | Cron `* * * * *`; each run ticks every 15 s for ~46 s (4 ticks) (`TICK_SECONDS`, `RUN_SECONDS`) |
 | Price | Median of Coinbase / Kraken / Bitstamp (≥ 2 sources, ≤ 50 bps spread), 8-dec WAD, signed EIP-191 over `keccak256(abi.encode(31611, oracle, price, publishTime))` exactly like `signer.py` / `abi.py`. One deliberate difference: publishTime = min(now, latest block time + 5 s), because testnet block time can lag wall clock by ~10 s and the oracle rejects reports > `maxSkew` (10 s) in the future |
 | Per tick | Fill pending orders (only at a price published after the request), liquidate positions past their bust price, push the price (at least once per run, so the on-chain price is ≤ ~60 s old), harvest the payout queue |
+| Pause (v3.1) | Reads `paused()` in the same batch as the snapshot (no extra subrequest). While paused it skips fills and liquidations, holds the order-scan cursor (orders requested during the pause are filled after unpause), and keeps price pushes, harvest and `rebalance` / `forwardBtc`. It logs `exchange PAUSED` / `exchange unpaused` once per change (state in KV, shown as `paused` in `/health`), not an error every tick. On v3 `paused()` reverts and is read as not paused |
 | Txs | Sequential, one in flight, legacy EIP-155 tx, `pending` nonce (never reused within a run), gas = estimate × 1.3 + 20k, gasPrice = 2 × `eth_gasPrice` |
 | Safety | Refuses any RPC host other than `rpc.test.mezo.org` and any chainId other than 31611 |
 | Health | `GET /health` → live on-chain price + age, open positions, pending orders, and the last run summary (tx hashes, per-tick results) from KV. No secrets |
@@ -89,6 +90,7 @@ Signature / calldata / raw-tx encoding is checked byte-for-byte against the Pyth
 cd keeper-worker
 pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageManager pins pnpm@10.33.2)
 pnpm check                                              # tsc --noEmit
+pnpm test                                               # pause handling (node --test)
 W="pnpm dlx --package node@22 --package wrangler@latest wrangler"   # wrangler needs Node >= 22
 $W deploy
 printenv KEEPER_KEY | $W secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
@@ -160,3 +162,59 @@ in each `pnpm-workspace.yaml`):
 
 Read-only preview: `?viewAs=0x…` shows any address's trove, balances and the deposit routes without a wallet (every
 write is refused). Used for screenshots of the "has a trove" / "no trove" states.
+
+## 5. Emergency pause (v3.1)
+
+HouseExchange v3.1 has an emergency stop. `pause()` can be called by the `guardian` or the owner and takes effect in
+the same block. `unpause()` is owner-only, and the owner is the `TimelockController`, so resuming always goes through
+schedule → 1-hour delay → execute. A guardian key alone can never undo a pause.
+
+| While paused | |
+|---|---|
+| Reverts with `EnforcedPause` | `requestOpen`, `executeOrder` (all fills, including queued closes), `liquidate`, `sweepExcess` |
+| Skipped | Stability Pool deposits (`rebalance` only withdraws or does nothing) |
+| Still works | `requestClose` (filled after unpause), `cancelExpired` (refunds), `harvest`, pool withdrawals, `forwardBtc`, `pushPrice`, views, owner admin calls, RebateStaking `stake` / `unstake` / `claim` |
+
+The frontend shows a "TRADING PAUSED" banner and disables opening; the keeper Worker stops filling and liquidating
+on its own (section 3). Nothing else has to be changed to pause.
+
+### Pause (guardian, immediate)
+
+The guardian key is set at deploy (`GUARDIAN`, default = the deployer; never the keeper key). Keep keys off argv: use a
+Foundry keystore (`cast wallet import`), which prompts for its password.
+
+```bash
+EX=<HouseExchange v3.1>   # deployments/testnet-v3.1.json
+cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # false
+cast send $EX "pause()" --account <guardian-keystore> --rpc-url https://rpc.test.mezo.org
+cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # true
+```
+
+Then check the keeper: `curl -s https://bustline-keeper.planz.workers.dev/health` shows `"paused": true`.
+
+### Resume (timelock: schedule → wait → execute)
+
+`unpause()` has selector `0x3f4ba83a` (`cast sig "unpause()"`) and no arguments, so the payload is just the selector.
+Use a **fresh salt** every time: a timelock operation id is `hash(target, value, data, predecessor, salt)`, so reusing the
+salt of an earlier unpause would give an id that is already done and `schedule` would revert.
+
+```bash
+TL=<TimelockController>   # deployments/testnet-v3.1.json "Timelock"
+SALT=$(cast keccak "bustline-v3.1-unpause-$(date -u +%Y%m%dT%H%M%S)")
+cast send $TL "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" \
+  $EX 0 0x3f4ba83a 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT 3600 \
+  --account <proposer-keystore> --rpc-url https://rpc.test.mezo.org
+# operation id (keep it with the salt):
+cast call $TL "hashOperation(address,uint256,bytes,bytes32,bytes32)(bytes32)" \
+  $EX 0 0x3f4ba83a 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT --rpc-url https://rpc.test.mezo.org
+
+# after the delay (isOperationReady(id) == true), from any account:
+cast send $TL "execute(address,uint256,bytes,bytes32,bytes32)" \
+  $EX 0 0x3f4ba83a 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT \
+  --account <any-keystore> --rpc-url https://rpc.test.mezo.org
+cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # false
+```
+
+After unpause the keeper logs `exchange unpaused` and fills the orders that were requested during the pause (a close
+that expired meanwhile is refundable with `cancelExpired`; its position stays open). Record the schedule / execute
+txs in [`DEPLOYMENTS.md`](DEPLOYMENTS.md#timelock-operations).

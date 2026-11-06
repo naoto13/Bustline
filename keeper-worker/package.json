@@ -5,7 +5,8 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "check": "tsc --noEmit",
-    "test:sig": "node test/sig.mjs"
+    "test:sig": "node test/sig.mjs",
+    "test": "node --experimental-strip-types --test test/pause.test.mjs"
   },
   "dependencies": {
     "viem": "^2.21.0"

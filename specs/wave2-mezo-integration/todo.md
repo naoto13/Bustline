@@ -69,3 +69,15 @@
 - [x] 独立レビュー（on-chain、金額計算に当たるので必須） → 2026-11-06 Codex（gpt-5.6-terra）で2回。1回目 fail（`claim()` が BTC を受け取れない staker で MUSD ごと revert、`sweepExcess()` が `spMinLiquid` を割る）→ 両方修正し回帰テストを追加（85 件）。2回目は sweep 解消、残り major 1 件は backlog
 - [ ] backlog: `claim()` の BTC 送金先がガスを使い切ると tx 全体が revert する（2回目のレビューの major）。被害は受取側の staker 本人だけで、`claimBtcTo` で逃がせる。固定 stipend は proxy 型ウォレットを壊すため見送り。必要なら上限付きガス（例 50k）を検討
 - [ ] 修正後のコントラクトの再デプロイ（v3 は 2026-11-06 時点のコードのまま）
+
+## v3.1: 緊急停止とプロトコル手数料（spec 5.5）
+
+- [x] HouseExchange: guardian と `pause()`／`unpause()`（OpenZeppelin `Pausable`）、止める関数と止めない関数の整理 → `src/HouseExchange.sol`
+- [x] HouseExchange: `protocolFeeBps`（1%）と `treasury`、勝ちの決済でその場で送る。`previewClose` も変更
+- [x] 単体テストとファジングの会計確認 → `test/PauseAndProtocolFee.t.sol`（16 件）、`test/Timelock.t.sol`（1 件追加）、`testFuzz_randomTradingKeepsAccounting` に手数料の確認を追加
+- [x] デプロイスクリプト `script/DeployTestnetV3_1.s.sol`（testnet での dry-run 成功、broadcast はしていない）と fork テスト
+- [ ] 独立レビュー（金額計算に当たるので必須）
+- [ ] testnet へのデプロイ、エクスプローラでの検証、`deployments/testnet-v3.1.json` の記録
+- [x] ABI の再生成（`scripts/export-abi.sh`）
+- [ ] フロント（「2% win fee」の表示）、keeper（ABI、停止中の扱い）、README・docs の更新
+

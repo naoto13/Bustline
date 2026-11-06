@@ -66,8 +66,11 @@ export default function Funding(props: {
   side: "long" | "short"; lev: number; marginW: bigint; musd?: bigint; mark?: bigint; bust?: bigint;
   write: WriteFn; run: (label: string, fn: () => Promise<unknown>) => Promise<void>;
   connect?: () => void; needConnect: boolean; onLines: (g: Guide[]) => void;
+  /** v3.1 emergency pause: requestOpen reverts, so no route may start (the BTC route would borrow, then fail at step 3) */
+  paused?: boolean;
 }) {
   const { d, who, readOnly, busy, side, lev, marginW, write, run } = props;
+  const paused = !!props.paused;
   const mz = useMemo(() => mezoProtocol(d), [d]);
   const proto = useQuery({ queryKey: ["mezo-proto", mz.BorrowerOperations], queryFn: () => readProtocol(mz), refetchInterval: 15000, retry: 1 });
   const trove = useQuery({ queryKey: ["mezo-trove", mz.TroveManager, who], queryFn: () => readTrove(mz, who!), enabled: !!who, refetchInterval: 6000, retry: 1 });
@@ -252,7 +255,7 @@ export default function Funding(props: {
   // ---- view ------------------------------------------------------------------------------------------------------------
   const options: Route[] = flowActive ? [flow!.route] : [hasTrove ? "trove" : "btc", "musd"];
   const steps = flow && (flowActive || isFinished(flow)) ? flow : null;
-  const canStart = !!who && !readOnly && !busy && problems.length === 0 && !flowActive;
+  const canStart = !!who && !readOnly && !busy && !paused && problems.length === 0 && !flowActive;
   const markN = props.mark;
   const dist = (x?: bigint) => (x && markN ? `${(((Number(x) - Number(markN)) / Number(markN)) * 100).toFixed(1)}%` : "");
   const rateTxt = (bps?: number) => (bps === undefined ? "–" : `${(bps / 100).toFixed(2)}% / yr, simple`);
@@ -339,12 +342,13 @@ export default function Funding(props: {
       {props.needConnect ? (
         <button className="primary" onClick={() => props.connect?.()}>Connect wallet</button>
       ) : flowActive ? (
-        <button className="primary" disabled={busy || readOnly} onClick={() => runFlow(flow!)}>Resume from step {failedAt + 1}</button>
+        <button className="primary" disabled={busy || readOnly || paused} onClick={() => runFlow(flow!)}>Resume from step {failedAt + 1}</button>
       ) : (
         <button className="primary" disabled={!canStart} onClick={start}>
           {route === "musd" ? `Request ${side} open` : `${ROUTE_LABEL[route]} → request ${side} · ${STEPS[route].length} steps`}
         </button>
       )}
+      {paused && <div className="note warn" data-note="paused">Opening is paused: the exchange rejects new positions until the timelock unpauses it. Nothing is borrowed or approved meanwhile. Closing open positions still works.</div>}
       {readOnly && <div className="note">Read-only preview of {who ? shortH(who) : "–"} — nothing can be signed here.</div>}
       {!readOnly && !flowActive && problems.length > 0 && marginW > 0n && <div className="fine neg">{problems[0]}</div>}
 

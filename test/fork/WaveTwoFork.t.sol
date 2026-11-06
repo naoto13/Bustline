@@ -11,6 +11,7 @@ import { SignedPriceOracle } from "../../src/oracles/SignedPriceOracle.sol";
 import { MezoPriceBound } from "../../src/oracles/MezoPriceBound.sol";
 import { IMezoStabilityPool, IMezoPriceFeed } from "../../src/interfaces/IMezo.sol";
 import { DeployTestnetV3 } from "../../script/DeployTestnetV3.s.sol";
+import { DeployTestnetV3_1 } from "../../script/DeployTestnetV3_1.s.sol";
 
 /// @notice Skip stand-in for `vm.etch` onto 0x7b7c…0015 (see MezoPrimitivesFork.t.sol). slot 0 = price,
 ///         slot 1 = stale flag (updatedAt = 0 → MUSD PriceFeed reverts "Oracle is stale.").
@@ -191,8 +192,9 @@ contract WaveTwoForkTest is Base {
 
         // winner larger than the cash on hand: settles, rest queued (real SP withdraw reverts → caught)
         uint256 pid = _open(alice, true, 3_000e18, 10, P0);
-        (, uint256 receive_) = ex.previewClose(pid, 108_000e18);
-        uint256 payout = receive_ - 3_000e18;
+        // v3.1: a partial payout is fee-free → the winner is owed margin + the whole impact-adjusted gain
+        uint256 payout = _gainAt(pid, 108_000e18);
+        uint256 receive_ = 3_000e18 + payout;
         assertGt(payout, ex.houseCash());
         vm.prank(alice);
         uint256 oid = ex.requestClose(pid, 0);
@@ -272,5 +274,80 @@ contract WaveTwoForkTest is Base {
         d.timelock.execute(spT, 0, spP, bytes32(0), spSalt);
         assertTrue(d.exchange.spEnabled());
         assertEq(d.exchange.spMinLiquid(), 50e18);
+    }
+
+    // ------------------------------------------------------------------ v3.1: pause + protocol fee deploy script
+    /// Calls `deploy(Config)` directly (not `run()`), so it does not race the v3 test's process-global env changes.
+    function test_fork_deployScriptV3_1_pauseFeeAndTimelock() public {
+        address dep = makeAddr("freshDeployer31");
+        address k = makeAddr("keeperKey31");
+        address s = makeAddr("signerKey31");
+        address tr = makeAddr("treasury31");
+        DeployTestnetV3_1 script = new DeployTestnetV3_1();
+        vm.expectRevert(bytes("zero treasury"));
+        script.deploy(DeployTestnetV3_1.Config(0, dep, k, s, dep, address(0), 3600, false));
+        vm.expectRevert(bytes("TIMELOCK_DELAY < 3600"));
+        script.deploy(DeployTestnetV3_1.Config(0, dep, k, s, dep, tr, 0, false));
+        vm.expectRevert(bytes("TIMELOCK_DELAY < 3600"));
+        script.deploy(DeployTestnetV3_1.Config(0, dep, k, s, dep, tr, 3599, false));
+        vm.expectRevert(bytes("guardian must not be the keeper key"));
+        script.deploy(DeployTestnetV3_1.Config(0, dep, k, s, k, tr, 3600, false));
+        DeployTestnetV3_1.Deployed memory d = script.deploy(DeployTestnetV3_1.Config(0, dep, k, s, dep, tr, 3600, false));
+
+        address tl = address(d.timelock);
+        assertEq(d.exchange.owner(), tl);
+        assertEq(d.pythOracle.owner(), tl);
+        assertEq(d.signedOracle.owner(), tl);
+        assertEq(d.rebateToken.owner(), tl);
+        assertEq(d.rebateToken.minter(), address(d.exchange));
+        assertEq(d.rebateToken.staking(), address(d.staking));
+        assertTrue(d.exchange.isKeeper(k));
+        assertEq(d.exchange.guardian(), dep);
+        assertEq(d.exchange.treasury(), tr);
+        assertEq(d.exchange.protocolFeeBps(), 100);
+        assertEq(d.exchange.winFeeBps(), 200);
+        assertFalse(d.exchange.paused());
+        assertFalse(d.exchange.spEnabled());
+        assertEq(address(d.exchange.stabilityPool()), STABILITY_POOL);
+        _v31TimelockFlow(script, d, dep);
+    }
+
+    function _v31TimelockFlow(DeployTestnetV3_1 script, DeployTestnetV3_1.Deployed memory d, address dep) internal {
+        // guardian (deployer) pauses immediately; unpause only through the timelock
+        vm.prank(dep);
+        d.exchange.pause();
+        assertTrue(d.exchange.paused());
+        vm.prank(dep);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, dep));
+        d.exchange.unpause();
+        (address uT, bytes memory uP) = script.unpauseCall(d);
+        bytes32 uSalt = script.UNPAUSE_SALT();
+        vm.prank(dep);
+        d.timelock.schedule(uT, 0, uP, bytes32(0), uSalt, 3600);
+        vm.warp(block.timestamp + 3600);
+        d.timelock.execute(uT, 0, uP, bytes32(0), uSalt);
+        assertFalse(d.exchange.paused());
+
+        // op B through the timelock, as v3
+        (address spT, bytes memory spP) = script.spEnableCall(d);
+        bytes32 spSalt = script.SP_ENABLE_SALT();
+        vm.prank(dep);
+        d.timelock.schedule(spT, 0, spP, bytes32(0), spSalt, 3600);
+        vm.warp(block.timestamp + 3600);
+        d.timelock.execute(spT, 0, spP, bytes32(0), spSalt);
+        assertTrue(d.exchange.spEnabled());
+    }
+
+    /// v3.1 on real testnet MUSD: a winning close pays the 1% protocol fee to the treasury (Base: `treasury`).
+    function test_fork_protocolFeeOnRealMusd() public {
+        _seedHouse(1_000e18);
+        uint256 pid = _open(alice, true, 1_000e18, 10, P0);
+        (, uint256 receive_) = ex.previewClose(pid, 101_000e18);
+        uint256 t0 = IERC20(MUSD).balanceOf(treasury);
+        _close(alice, pid, 101_000e18);
+        assertEq(IERC20(MUSD).balanceOf(alice), receive_);
+        assertGt(IERC20(MUSD).balanceOf(treasury) - t0, 0, "treasury received the fee");
+        assertEq(IERC20(MUSD).balanceOf(treasury) - t0, ex.totalProtocolFees());
+        _checkAccounting();
     }
 }

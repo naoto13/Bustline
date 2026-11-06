@@ -7,6 +7,7 @@
  */
 import { encodeAbiParameters, keccak256, type Hex } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import { PAUSED_SELECTOR, parsePaused, pauseGate } from "./pause";
 
 export interface Env {
   KEEPER_PRIVATE_KEY: string;
@@ -78,6 +79,8 @@ const SEL = {
   forwardableBtc: "0x52594520",
   spDeposit: "0xfaefef87",
   spWithdrawable: "0xaf5deacf",
+  // v3.1 (emergency pause) — v3 has no paused(): the call reverts and is read as "not paused" (pause.ts)
+  paused: PAUSED_SELECTOR,
 } as const;
 
 class RpcError extends Error {}
@@ -147,6 +150,8 @@ interface Snapshot {
   openIds: bigint[];
   pending: bigint[];
   chainId: number;
+  /** v3.1 `paused()`; false on v3 (no such function) */
+  paused: boolean;
 }
 
 async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
@@ -160,6 +165,7 @@ async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
     ethCall(SEL.openPositionIds),
     ethCall(SEL.pendingOrderIds + u256(cursor, cursor + SCAN_WINDOW)), // contract clamps `to` to orderCount
     { method: "eth_chainId", params: [] },
+    ethCall(SEL.paused), // same batch = no extra subrequest; never passed through ok() (reverts on v3)
   ]);
   let price: bigint | null = null, upd = 0, err: string | null = null;
   if (r[0].error) err = r[0].error.message ?? "currentPrice reverted";
@@ -175,6 +181,7 @@ async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
     openIds: dynUintArray(ok(r[6])),
     pending: dynUintArray(ok(r[7])),
     chainId: Number(BigInt(ok(r[8]))),
+    paused: parsePaused(r[9]),
   };
 }
 
@@ -296,10 +303,14 @@ class Executor {
 interface RunState {
   cursor: number; lastPush: number; pushedThisRun: boolean; heartbeat: number;
   spOps: boolean; spInterval: number; lastSp: number;
+  /** last `paused()` state seen (persisted in KV so a long pause is logged once, on the transition) */
+  paused: boolean;
 }
 interface TickOut {
   at: string; filled: string[]; waiting: string[]; liquidated: string[]; harvested: boolean; at_risk: string[];
   sp?: string[];
+  /** v3.1: exchange paused this tick (fills / liquidations skipped). Not an error: it must not trigger KV writes. */
+  paused?: boolean;
   pushed: boolean; source: string | null; price: string | null; errors: string[]; snapshot?: Record<string, unknown>;
 }
 const fmt = (w: bigint | null) => (w === null ? null : (Number(w) / 1e18).toFixed(2));
@@ -313,13 +324,19 @@ async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunSt
   out.snapshot = {
     block_ts: s.blockTs, onchain_price: fmt(s.price ?? s.lastPrice), price_age_s: Math.max(0, s.blockTs - (s.price !== null ? s.priceUpdatedAt : s.lastTime)),
     settleable: s.price !== null, house_cash: fmt(s.houseCash), queued: fmt(s.queueTotal), open: s.openIds.map(String), orders: s.orderCount,
+    paused: s.paused,
   };
+  // v3.1 pause: skip fills + liquidations (they revert EnforcedPause), hold the scan cursor, log only on a change
+  const gate = pauseGate(s.paused, st.paused);
+  st.paused = gate.paused;
+  if (gate.log) console.log(`[keeper] ${gate.log}`);
+  if (s.paused) out.paused = true;
   const end = Math.min(s.orderCount, st.cursor + SCAN_WINDOW);
   const pending = s.pending;
   const hbDue = !st.pushedThisRun || (st.heartbeat > 0 && now - st.lastPush >= st.heartbeat);
 
   let bundle: PriceBundle | null = null;
-  if (pending.length || s.openIds.length || hbDue) {
+  if ((!gate.skipTrading && (pending.length || s.openIds.length)) || hbDue) {
     try { bundle = await fetchBundle(rpc, signer, s.blockTs); out.source = bundle.source; }
     catch (e) { out.errors.push(`price source unavailable — using on-chain price: ${String(e).slice(0, 200)}`); }
   }
@@ -333,7 +350,9 @@ async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunSt
   const consume = (): [Hex[], bigint] => { const r: [Hex[], bigint] = [upd, fee]; upd = []; fee = 0n; return r; };
 
   // 1) pending orders → fill only at a price PUBLISHED strictly after the request
-  if (pending.length) {
+  if (!gate.moveCursor) {
+    // paused: leave st.cursor alone so orders requested during the pause (requestClose) are scanned after unpause
+  } else if (pending.length) {
     const orders = await rpc.batch(pending.map((oid) => ethCall(SEL.getOrder + u256(oid))));
     for (let i = 0; i < pending.length; i++) {
       const oid = pending[i];
@@ -350,7 +369,7 @@ async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunSt
   }
 
   // 2) liquidations (decided off-chain against the fresh price, enforced on-chain)
-  if (s.openIds.length && rpc.count < SUBREQUEST_BUDGET) {
+  if (!gate.skipTrading && s.openIds.length && rpc.count < SUBREQUEST_BUDGET) {
     const calls: Call[] = [];
     // with a fresh bundle: compare against bustPriceOf; otherwise ask isLiquidatable (same as monitor.py)
     for (const pid of s.openIds)
@@ -442,6 +461,7 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   const st: RunState = {
     cursor: prev?.cursor ?? 0, lastPush: prev?.lastPush ?? 0, pushedThisRun: false, heartbeat,
     spOps: env.SP_OPS === "1", spInterval: Number(env.SP_INTERVAL_SECONDS ?? heartbeat), lastSp: prev?.lastSp ?? 0,
+    paused: prev?.paused === true,
   };
   const ticks: TickOut[] = [];
   for (let i = 0; ; i++) {
@@ -457,7 +477,7 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
     console.log(`[keeper] tick ${i} ${JSON.stringify(snap ?? {})} | ${JSON.stringify(rest)}`);
   }
   const summary = {
-    keeper: acct.address, price_signer: signer.address, exchange: EXCHANGE, oracle: ORACLE, sp_ops: st.spOps, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
+    keeper: acct.address, price_signer: signer.address, exchange: EXCHANGE, oracle: ORACLE, sp_ops: st.spOps, paused: st.paused, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
     subrequests: rpc.count, cursor: st.cursor, last_push: st.lastPush ? new Date(st.lastPush * 1000).toISOString() : null,
     txs: ex.txs, ticks,
   };
@@ -466,8 +486,10 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
     // Workers KV free tier = 1000 writes/day. One key per write; write only when the cursor moved, something other than
     // a push happened, or every 10 minutes so /health stays reasonably fresh (~144 writes/day baseline).
     const eventful = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.errors.length || t.sp?.length);
-    if (eventful || st.cursor !== (prev?.cursor ?? 0) || new Date(scheduledTime || start).getUTCMinutes() % 10 === 0) {
-      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, lastSp: st.lastSp, last: summary }));
+    // A pause is not "eventful" by itself (that would write every minute); only the transition is persisted.
+    const pauseChanged = st.paused !== (prev?.paused === true);
+    if (eventful || pauseChanged || st.cursor !== (prev?.cursor ?? 0) || new Date(scheduledTime || start).getUTCMinutes() % 10 === 0) {
+      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, lastSp: st.lastSp, paused: st.paused, last: summary }));
     }
   }
   return summary;
@@ -491,6 +513,7 @@ async function health(env: Env): Promise<Response> {
     live.open_positions = s.openIds.map(String);
     live.order_count = s.orderCount;
     live.pending_orders = s.pending.map(String);
+    live.paused = s.paused;
   } catch (e) { live.error = String(e).slice(0, 200); }
   const last = env.KEEPER_STATE ? ((await env.KEEPER_STATE.get("state", "json")) as any)?.last ?? null : null;
   return Response.json({ worker: "bustline-keeper", network: "mezo-testnet", live, last_run: last }, { headers: { "Cache-Control": "no-store" } });

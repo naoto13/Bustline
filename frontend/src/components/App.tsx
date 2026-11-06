@@ -12,6 +12,7 @@ import { HouseExchangeAbi, RebateStakingAbi, RebateTokenAbi, MockERC20Abi, MockO
 import { ANVIL_ACCOUNTS, MODE, RPC_URL, loadDeployment, type Deployment } from "@/lib/config";
 import { publicClient, localWallet } from "@/lib/chain";
 import { num, usd, signed } from "@/lib/format";
+import { readHouseExtra, readPendingBtc, bpsPct } from "@/lib/v31";
 
 const EX = HouseExchangeAbi as Abi;
 const E20 = MockERC20Abi as Abi;
@@ -24,6 +25,7 @@ type Ord = { id: bigint; trader: Address; kind: number; status: number; isLong: 
 
 async function readMarket(d: Deployment) {
   const x = d.HouseExchange;
+  const extraP = readHouseExtra(x); // v3 / v3.1 optional reads; each one tolerates a missing function
   const [[price, updatedAt], houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, orderCount, openIds, head, qlen, totalStaked, toStakers] =
     await Promise.all([
       r<readonly [bigint, bigint]>(x, EX, "lastPrice"), r<bigint>(x, EX, "houseCash"), r<bigint>(x, EX, "queueTotal"),
@@ -45,7 +47,8 @@ async function readMarket(d: Deployment) {
   const [tokenName, tokenSymbol] = await Promise.all([
     r<string>(d.RebateToken, RebateTokenAbi as Abi, "name"), r<string>(d.RebateToken, RebateTokenAbi as Abi, "symbol"),
   ]);
-  return { settleable, tokenName, tokenSymbol, price, updatedAt, houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, positions, orders, queue, totalStaked, toStakers };
+  const extra = await extraP;
+  return { extra, settleable, tokenName, tokenSymbol, price, updatedAt, houseCash, queueTotal, equity, longOi, shortOi, mintRate, maxLev, bufDiv, positions, orders, queue, totalStaked, toStakers };
 }
 
 async function readUser(d: Deployment, who: Address) {
@@ -56,7 +59,8 @@ async function readUser(d: Deployment, who: Address) {
     r<bigint>(d.RebateStaking, S, "pending", [who]), r<bigint>(d.HouseExchange, EX, "queuedOf", [who]),
     r<bigint>(d.RebateToken, E20, "allowance", [who, d.RebateStaking]),
   ]);
-  return { musd, allowance, rebate, staked, pending, queued, rtAllow };
+  const pendingBtc = await readPendingBtc(d.RebateStaking, who); // RebateStaking v3+; undefined on older staking
+  return { musd, allowance, rebate, staked, pending, pendingBtc, queued, rtAllow };
 }
 
 /** Client-side mirror of ImpactLib.bustPrice (hard-bust trigger incl. 5 bps buffer). */
@@ -138,12 +142,16 @@ function Dashboard() {
   const [fitLines, setFitLines] = useState(true);
   // `?viewAs=0x…` — read-only preview of any address (no signing). Read in an effect so the static export keeps working.
   const [viewAs, setViewAs] = useState<Address | undefined>(undefined);
+  // `?simulatePaused=1` — display-only preview of the v3.1 paused state (banner + disabled open). Changes nothing on
+  // chain and can only disable buttons; the banner says SIMULATED so it is never mistaken for the real state.
+  const [simPaused, setSimPaused] = useState(false);
 
   useEffect(() => { loadDeployment().then(setDep); }, []);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const v = q.get("viewAs");
     if (v && isAddress(v)) setViewAs(v);
+    if (q.get("simulatePaused") === "1") setSimPaused(true);
     // `?tab=house|mpaper` — deep link from /docs (navigation only)
     const t = q.get("tab");
     if (t === "house" || t === "mpaper") setTab(t);
@@ -200,6 +208,13 @@ function Dashboard() {
   const marginInUse = myPositions.reduce((a, p) => a + p.margin, 0n);
   const openPnl = mk ? myPositions.reduce((a, p) => a + rawPnl(p, mk.price), 0n) : undefined;
   const maxLev = Number(mk?.maxLev ?? 100n);
+  const x31 = mk?.extra;
+  const chainPaused = x31?.paused === true;
+  const paused = chainPaused || simPaused;
+  const winFeeTxt = bpsPct(x31?.winFeeBps ?? 200n);
+  // v3 has no protocol fee (protocolFeeBps() reverts → undefined): then only the staker win fee is shown
+  const protoFeeTxt = x31?.protocolFeeBps && x31.protocolFeeBps > 0n ? bpsPct(x31.protocolFeeBps) : undefined;
+  const feeLine = `${winFeeTxt} to stakers${protoFeeTxt ? ` + ${protoFeeTxt} protocol fee` : ""}`;
 
   const guides = useMemo<Guide[]>(() => {
     const g: Guide[] = [];
@@ -298,6 +313,14 @@ function Dashboard() {
     </div>
   );
 
+  const pausedBanner = paused && (
+    <div className="banner halt" role="status" data-banner="paused">
+      <b>TRADING PAUSED{simPaused && !chainPaused ? " · SIMULATED (?simulatePaused=1 preview, not the on-chain state)" : ""}</b>
+      {" — "}the guardian paused the exchange. New positions, fills and liquidations are halted. Still open: close requests
+      (filled after unpause), refunds of expired orders, queue harvest and MPAPER stake / claim. Only the timelock can unpause (1-hour delay).
+    </div>
+  );
+
   const statRow = (
     <div className="statrow">
       <div className="asset">
@@ -353,12 +376,13 @@ function Dashboard() {
       <div className="readouts">
         <Row k="Order Value" v={usd(sizeW, 0)} />
         <Row k="Bust Price" v={<span className={side === "long" ? "pos" : "neg"}>{mk ? usd(estBust) : "– –"}</span>} />
-        <Row k="Fill" v="next oracle update" />
+        <Row k="Fill" v={paused ? "after unpause" : "next oracle update"} />
+        <Row k="Fees on profit" v={feeLine} />
       </div>
       <Funding d={d} who={who} readOnly={readOnly} busy={busy} side={side} lev={lev} marginW={marginW} musd={us?.musd}
-        mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run}
+        mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run} paused={paused}
         needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} />
-      <div className="fine">2-step: keeper fills at the next signed price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut + 2% win fee. Bust = liquidation.</div>
+      <div className="fine">2-step: keeper fills at the next signed price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut, then {feeLine} on the adjusted gain (only when paid in full right away; queued payouts are fee-free). Bust = liquidation.</div>
       {MODE === "local" && (
         <div className="demo">
           <div className="lbl">DEMO CONTROLS (LOCAL ANVIL)</div>
@@ -385,7 +409,7 @@ function Dashboard() {
               <td>{usd(p.entryPrice)}</td><td>{usd(mk?.price)}</td>
               <td className="neg">{usd(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk?.bufDiv ?? 2000n))}</td>
               <td className={pnl < 0n ? "neg" : "pos"}>{signed(pnl)}</td>
-              <td><button className="pill" disabled={busy} onClick={() => run(`requestClose #${p.id}`, () => write(d.HouseExchange, EX, "requestClose", [p.id, 0n]))}>Close</button></td>
+              <td><button className="pill" disabled={busy} title={paused ? "Allowed while paused — the close fills after unpause" : undefined} onClick={() => run(`requestClose #${p.id}`, () => write(d.HouseExchange, EX, "requestClose", [p.id, 0n]))}>Close</button></td>
             </tr>
           );
         })}
@@ -407,6 +431,7 @@ function Dashboard() {
           <>
             {positionsTable}
             {myPositions.length === 0 && <div className="empty">{who ? "No open positions." : "Connect wallet to view your positions."}</div>}
+            {paused && myPositions.length > 0 && <div className="fine">Paused: you can still request a close. It fills after unpause; if it expires first (5 min), the position stays open and you can request again.</div>}
           </>
         )}
         {btab === "orders" && (
@@ -419,7 +444,7 @@ function Dashboard() {
                     <td>{String(o.id)}</td><td>{o.kind === 0 ? "OPEN" : "CLOSE"}</td>
                     <td><span className={`tag ${o.isLong ? "tlong" : "tshort"}`}>{o.isLong ? "LONG" : "SHORT"}</span></td>
                     <td>{num(o.margin)}</td><td>{usd(o.size, 0)}</td><td>{new Date(Number(o.createdAt) * 1000).toLocaleTimeString()}</td>
-                    <td><span className="tag tgrey">WAITING FOR KEEPER</span></td>
+                    <td><span className="tag tgrey">{paused ? "WAITING FOR UNPAUSE" : "WAITING FOR KEEPER"}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -482,6 +507,17 @@ function Dashboard() {
         <Row k="Max Leverage" v={mk ? `${String(mk.maxLev)}x` : "–"} />
         <Row k="Oracle" v={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode} />
         <div className="fine">House cash grows only from trader losses. Equity = cash − queued (can be &lt; 0).</div>
+      </Panel>
+      <Panel title="House Assets & Fees" testid="assets">
+        <Row k="Liquid Cash" v={`${num(mk?.houseCash)} MUSD`} />
+        <Row k="Stability Pool Deposit" v={x31?.spDeposit !== undefined ? `${num(x31.spDeposit)} MUSD` : "–"} />
+        <Row k="Stability Pool" v={x31?.spEnabled === undefined ? "–" : <span className={`tag ${x31.spEnabled ? "tlong" : "tgrey"}`}>{x31.spEnabled ? "ENABLED" : "DISABLED"}</span>} />
+        <Row k="Liquid Floor" v={x31?.spMinLiquid !== undefined ? `${num(x31.spMinLiquid, 0)} MUSD` : "–"} />
+        <Row k="Max Pool Share" v={x31?.spMaxShareBps !== undefined ? bpsPct(x31.spMaxShareBps) : "–"} />
+        <Row k="Fees on Profit" v={feeLine} />
+        <Row k="Protocol Fees Paid" v={x31?.totalProtocolFees !== undefined ? `${num(x31.totalProtocolFees)} MUSD` : <span className="k">from v3.1</span>} />
+        <Row k="Trading" v={<span className={`tag ${paused ? "tshort" : "tlong"}`}>{paused ? (chainPaused ? "PAUSED" : "PAUSED · SIMULATED") : "ACTIVE"}</span>} />
+        <div className="fine">Idle cash above the floor earns in the Mezo Stability Pool; winners are paid from cash, then the pool, then the queue.{protoFeeTxt ? " The protocol fee goes to the treasury and funds the keeper and oracle." : ""}</div>
       </Panel>
       <Panel title="User Positions" testid="oi">
         <table className="tbl compact">
@@ -550,10 +586,11 @@ function Dashboard() {
     <div className="pgrid paper">
       <Panel title="Claimable Rewards" testid="claim">
         <div className="bigv num">{us ? num(us.pending, 4) : "– –"} <span className="k">MUSD</span></div>
+        <div className="num claimbtc">{us && us.pendingBtc !== undefined ? num(us.pendingBtc, 8) : "– –"} <span className="k">BTC</span></div>
         {MODE !== "local" && !who ? (
           <button className="primary green" onClick={() => openConnectModal?.()}>Connect wallet</button>
         ) : (
-          <button className="primary green" disabled={busy || !us || us.pending === 0n} onClick={() => run("claim", () => write(d.RebateStaking, RebateStakingAbi as Abi, "claim", []))}>Claim MUSD</button>
+          <button className="primary green" disabled={busy || readOnly || !us || (us.pending === 0n && !us.pendingBtc)} onClick={() => run("claim", () => write(d.RebateStaking, RebateStakingAbi as Abi, "claim", []))}>{us?.pendingBtc !== undefined ? "Claim MUSD + BTC" : "Claim MUSD"}</button>
         )}
       </Panel>
       <Panel title={`${mk?.tokenSymbol ?? "MPAPER"} Staked`} testid="staked">
@@ -578,7 +615,8 @@ function Dashboard() {
         <Row k="Your Stake Share" v={us && mk && mk.totalStaked > 0n ? `${((f(us.staked) / f(mk.totalStaked)) * 100).toFixed(2)}%` : "– –"} />
         <Row k="Paid to Stakers" v={`${num(mk?.toStakers)} MUSD`} />
         <Row k="Mint Rate" v={`${num(mk?.mintRate, 1)} / MUSD lost`} />
-        <Row k="Reward Token" v="MUSD" />
+        <Row k="BTC to Stakers" v={x31?.totalBtcToStakers !== undefined ? `${num(x31.totalBtcToStakers, 8)} BTC` : "–"} />
+        <Row k="Reward Tokens" v={us?.pendingBtc !== undefined || x31?.totalBtcToStakers !== undefined ? "MUSD + BTC" : "MUSD"} />
       </Panel>
       <Panel title={mk?.tokenName ?? "Mezo Paper"}>
         <Row k="Symbol" v={mk?.tokenSymbol ?? "MPAPER"} />
@@ -609,6 +647,7 @@ function Dashboard() {
     <div className="app">
       {nav}
       {banner}
+      {pausedBanner}
       {tab === "trade" ? trade : tab === "house" ? house : mpaper}
       {tab === "trade" && bottom}
       {tab !== "trade" && <div className="hiddenlog">{bottom}</div>}

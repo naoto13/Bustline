@@ -342,6 +342,8 @@ contract HouseExchangeTest is Base {
         _checkAccounting();
         // house can never pay more than it received
         assertLe(ex.cumulativePaid(), ex.cumulativeLosses());
+        // v3.1: winners + protocol fees together never exceed what the house received
+        assertLe(ex.cumulativePaid() + ex.totalProtocolFees(), ex.cumulativeLosses());
     }
 
     /// @dev Mock Stability Pool + "withdrawals not blocked" ICR mocks, small band so deposits really happen.

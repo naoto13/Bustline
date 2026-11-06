@@ -44,6 +44,7 @@ contract TimelockTest is Test {
         rt.setMinter(address(ex)); // v3 deploys its own RebateToken and wires it before the handover
         rt.setStaking(address(st));
         ex.setKeeper(keeper, true);
+        ex.setGuardian(deployer); // v3.1: guardian = deployer (as in DeployTestnetV3_1)
         ex.transferOwnership(address(tl));
         so.transferOwnership(address(tl));
         po.transferOwnership(address(tl));
@@ -140,6 +141,36 @@ contract TimelockTest is Test {
         vm.expectRevert();
         tl.execute(address(ex), 0, data, bytes32(0), bytes32("k"));
         assertFalse(ex.isKeeper(anyone));
+    }
+
+    /// v3.1: the guardian pauses at once (no timelock); only the timelock can unpause, after the delay.
+    function test_guardianPausesImmediately_unpauseOnlyViaTimelock() public {
+        vm.prank(keeper);
+        vm.expectRevert(HouseExchange.NotGuardian.selector);
+        ex.pause();
+        vm.prank(deployer);
+        ex.pause();
+        assertTrue(ex.paused());
+        vm.prank(deployer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployer));
+        ex.unpause();
+        bytes memory data = abi.encodeCall(HouseExchange.unpause, ());
+        _schedule(address(ex), data, bytes32("u"));
+        vm.expectRevert();
+        tl.execute(address(ex), 0, data, bytes32(0), bytes32("u"));
+        vm.warp(block.timestamp + DELAY);
+        vm.prank(anyone);
+        tl.execute(address(ex), 0, data, bytes32(0), bytes32("u"));
+        assertFalse(ex.paused());
+        // treasury / fee / guardian changes are owner powers → timelock too
+        vm.startPrank(deployer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployer));
+        ex.setTreasury(deployer);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployer));
+        ex.setProtocolFee(0);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, deployer));
+        ex.setGuardian(address(0));
+        vm.stopPrank();
     }
 
     function test_delayChangeAlsoNeedsTimelock() public {
