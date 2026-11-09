@@ -58,6 +58,7 @@ Same three keys as v3. A leaked keeper or signer key can neither pause nor call 
 | Op | Call | Status |
 |---|---|---|
 | B — enable the Stability Pool | `HouseExchange v3.1.setSpParams(true, 50e18, 5000, 2000)` (min liquid 50 MUSD, max share 50%, band 20%) | **Done 2026-11-07** (scheduled 03:51 JST, executed after the 1-hour delay; `spEnabled = true`). id `0x77cc7265afb4c8530c759f7d95ea41d49fd3c1596e452bdc7693d4bea0d47909`, salt `keccak256("bustline-v3.1-sp-enable")` = `0x2f2e4a04e8a04eaf31038a0c61aaa833e8ee735299e060bc15d09dc32ef19f3b`, schedule tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`. Execute tx `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` |
+| C — lower the Stability Pool floor for the testnet demo | `HouseExchange v3.1.setSpParams(true, 0.25e18, 5000, 2000)` (min liquid 50 → 0.25 MUSD; share and band unchanged) | **Done 2026-11-10** (testnet only: without seed capital, house cash never reached 50 MUSD, so no deposit could happen). id `0x6e0d7b24050107e2adb2d0f19e93abfe2be6574e6747f422c5f184cff3dbcf2a`, salt `keccak256("bustline-v3.1-sp-floor-0.25")` = `0xf65c30d8a395260146723e2a98550d5131df471e7bac2138c758827a20311844`, schedule tx `0x7fa71a52a3bf5e6e430847f20561d7331cd6f0eeb90257fa2f4b0041e2fe8b1d`, execute tx `0x94de816eaac8b2c9eb1cd0bbc76ad92b8eac6c348314b30b44dda446c2235bdc`. The keeper's next `rebalance()` made the first deposit: 0.2785 MUSD (`SpDeposited`, tx `0x8dd07d2cc0a75ff66f7ba9c05d5f1c59d127fb6458b1da5f42498cb4eb41e042`). A low floor means a winner can be queued if pool withdrawals freeze; restore 50 MUSD (op B payload) before any real use |
 
 Payload of op B (same as v3):
 `0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
@@ -108,7 +109,7 @@ independent users and not Mezo Passport / UI sessions. Each step sends the same 
 | Close long 30 (paid in full; protocol fee 0.0133, staker fee 0.0266) | — | keeper | `0x23ea67fbb6394aa3c4209479c3a554073a2af612aa7f016c6bf668b4089b3f8b` |
 
 Result: `totalProtocolFees` 0.0355 MUSD (now on the treasury), 0.0709 MUSD to stakers, house cash 0.557 MUSD,
-queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD), so no Stability Pool deposit yet.
+queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD) here; the first Stability Pool deposit followed op C (2026-11-10).
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
 

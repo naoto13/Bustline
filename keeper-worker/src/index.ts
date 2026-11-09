@@ -19,7 +19,7 @@ export interface Env {
   TICK_SECONDS?: string;
   RUN_SECONDS?: string;
   HEARTBEAT_SECONDS?: string;
-  /** HouseExchange address (required; wrangler.toml [vars], v3 = deployments/testnet-v3.json). */
+  /** HouseExchange address (required; wrangler.toml [vars], currently v3.1 = deployments/testnet-v3.1.json). */
   EXCHANGE_ADDRESS?: string;
   /** SignedPriceOracle address — part of the signed-report digest, so it must match the exchange's oracle. */
   ORACLE_ADDRESS?: string;
@@ -31,7 +31,7 @@ export interface Env {
 
 const TESTNET_HOST = "rpc.test.mezo.org";
 const CHAIN_ID = 31611;
-// Contract addresses come ONLY from wrangler.toml [vars] (v3 = deployments/testnet-v3.json). There is no fallback: a
+// Contract addresses come ONLY from wrangler.toml [vars] (currently v3.1 = deployments/testnet-v3.1.json). There is no fallback: a
 // missing var must stop the Worker, not silently point it at the frozen v2 market (fail closed).
 // Set from env at the start of every invocation (configure). env is fixed per deployment, so module scope is safe.
 let EXCHANGE: Hex = "0x0000000000000000000000000000000000000000";
