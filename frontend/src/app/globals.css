@@ -253,3 +253,37 @@ a.wordmark { color: var(--ink); }
   .nav nav a { padding: 0 6px; }
   .docs-fact { grid-template-columns: 1fr; gap: 1px; }
 }
+
+/* redemption order (Funding panel) */
+.redeem { border: 1px solid var(--line); border-radius: 2px; padding: 5px 8px; display: flex; flex-direction: column; gap: 2px; }
+.redeem .fine { margin: 2px 0 0; }
+
+/* proof page (/proof) — built on the docs layout */
+.proof-live { border: 1px solid var(--line); border-radius: 2px; background: var(--panel); padding: 8px 12px 10px; margin: 0 0 18px; }
+.proof-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px 14px; margin: 6px 0 0; }
+.proof-stats dt { font-size: 10.5px; color: var(--muted); }
+.proof-stats dd { margin: 1px 0 0; font-size: 15px; font-weight: 500; }
+.proof-stats dd span { font-family: var(--sans); font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.docs-body section.proof-limits { border: 1px solid #E2CB98; border-left: 3px solid var(--amber); background: var(--amberbg); padding: 14px 16px 6px; border-radius: 2px; margin-bottom: 8px; }
+.proof-limits h2 { color: var(--amber); }
+.proof-limits li::marker { color: var(--amber); }
+.proof-tbl td.proof-who, .proof-tbl td.proof-tx { white-space: nowrap; }
+.proof-tbl td.proof-tx { font-family: var(--mono); }
+.proof-sub { font-size: 11px; }
+.who { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; text-decoration: none; border: 1px solid transparent; }
+a.who:hover { text-decoration: underline; text-underline-offset: 2px; }
+.who-deployer { background: #E3DAC6; color: #5E5440; border-color: #D3C7AB; }
+.who-timelock { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+.who-keeper, .who-signer { background: #DCE3E8; color: var(--trove); border-color: #B9C8D3; }
+.who-walletA, .who-walletB { background: var(--amberbg); color: var(--amber); border-color: #E2CB98; }
+@media (max-width: 900px) {
+  .proof-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.proof-txtbl { table-layout: fixed; width: 100%; min-width: 560px; }
+.proof-txtbl th:nth-child(2) { width: 190px; }
+.proof-txtbl th:nth-child(3) { width: 140px; }
+@media (max-width: 420px) {
+  .nav { gap: 8px; padding: 0 10px; }
+  .nav nav { gap: 0; }
+  .nav nav a { padding: 0 5px; }
+}

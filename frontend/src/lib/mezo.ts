@@ -1,4 +1,4 @@
-import { parseAbi, type Address } from "viem";
+import { parseAbi, zeroAddress, type Address } from "viem";
 import { publicClient } from "./chain";
 import type { MezoProtocol } from "./config";
 
@@ -22,6 +22,8 @@ export const TroveManagerAbi = parseAbi([
   "function getTroveOwnersCount() view returns (uint256)",
   "function checkRecoveryMode(uint256 _price) view returns (bool)",
   "function getTCR(uint256 _price) view returns (uint256)",
+  "function getCurrentICR(address _borrower, uint256 _price) view returns (uint256)",
+  "function getNominalICR(address _borrower) view returns (uint256)",
 ]);
 export const HintHelpersAbi = parseAbi([
   "function getApproxHint(uint256 _CR, uint256 _numTrials, uint256 _inputRandomSeed) view returns (address hintAddress, uint256 diff, uint256 latestRandomSeed)",
@@ -29,6 +31,9 @@ export const HintHelpersAbi = parseAbi([
 ]);
 export const SortedTrovesAbi = parseAbi([
   "function findInsertPosition(uint256 _NICR, address _prevId, address _nextId) view returns (address, address)",
+  "function getSize() view returns (uint256)",
+  "function getLast() view returns (address)",
+  "function getPrev(address _id) view returns (address)",
 ]);
 const InterestRateManagerAbi = parseAbi(["function interestRate() view returns (uint16)"]);
 const PriceFeedAbi = parseAbi(["function fetchPrice() view returns (uint256)"]);
@@ -154,4 +159,59 @@ export async function computeHints(m: MezoProtocol, coll: bigint, principal: big
   const [hint] = await publicClient.readContract({ address: m.HintHelpers, abi: HintHelpersAbi, functionName: "getApproxHint", args: [nicr, trials, seed] });
   const [upper, lower] = await publicClient.readContract({ address: m.SortedTroves, abi: SortedTrovesAbi, functionName: "findInsertPosition", args: [nicr, hint, hint] });
   return { upper, lower, nicr };
+}
+
+/** Nominal ICR, the SortedTroves key: coll × 1e20 / principal (HintHelpers.computeNominalCR / LiquityMath._computeNominalCR). */
+export const nominalCr = (coll: bigint, principal: bigint) => (principal === 0n ? 2n ** 256n - 1n : (coll * 10n ** 20n) / principal);
+
+/** How many troves the redemption-order walk reads from the bottom of SortedTroves. */
+export const REDEMPTION_WALK = 40;
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const; // deployed on Mezo testnet; mezoChain declares none
+
+export type WalkRow = { id: Address; nicr: bigint; icr?: bigint };
+export type RedemptionWalk = { size: number; rows: WalkRow[]; complete: boolean };
+
+/** The lowest-collateralised troves, in redemption order (bottom of SortedTroves first). Redemptions start at
+ *  `getLast()` and move up with `getPrev`, so the list is walked sequentially; NICR / current ICR are read in one multicall. */
+export async function readRedemptionWalk(m: MezoProtocol, price?: bigint, limit = REDEMPTION_WALK): Promise<RedemptionWalk> {
+  const st = m.SortedTroves;
+  const [size, last] = await Promise.all([
+    publicClient.readContract({ address: st, abi: SortedTrovesAbi, functionName: "getSize" }),
+    publicClient.readContract({ address: st, abi: SortedTrovesAbi, functionName: "getLast" }),
+  ]);
+  const ids: Address[] = [];
+  let id = last;
+  while (id !== zeroAddress && ids.length < limit) {
+    ids.push(id);
+    id = await publicClient.readContract({ address: st, abi: SortedTrovesAbi, functionName: "getPrev", args: [id] });
+  }
+  const complete = id === zeroAddress;
+  const tm = m.TroveManager;
+  const calls = ids.flatMap((a) => [
+    { address: tm, abi: TroveManagerAbi, functionName: "getNominalICR", args: [a] } as const,
+    ...(price ? [{ address: tm, abi: TroveManagerAbi, functionName: "getCurrentICR", args: [a, price] } as const] : []),
+  ]);
+  const res = await publicClient.multicall({ contracts: calls, multicallAddress: MULTICALL3, allowFailure: false });
+  const per = price ? 2 : 1;
+  const rows = ids.map((a, i) => ({ id: a, nicr: res[i * per] as bigint, icr: price ? (res[i * per + 1] as bigint) : undefined }));
+  return { size: Number(size), rows, complete };
+}
+
+export type RedemptionRank =
+  | { kind: "ranked"; pos: number; of: number }
+  | { kind: "above"; of: number; walked: number };
+
+/** Position (1 = redeemed first) of an existing trove in the walk. */
+export function rankTrove(w: RedemptionWalk, who: Address): RedemptionRank {
+  const i = w.rows.findIndex((r) => r.id.toLowerCase() === who.toLowerCase());
+  return i >= 0 ? { kind: "ranked", pos: i + 1, of: w.size } : { kind: "above", of: w.size, walked: w.rows.length };
+}
+
+/** Estimated position of a trove with nominal ICR `nicr` once inserted. `exclude` drops the trove itself (adjusting an existing one). */
+export function rankPlanned(w: RedemptionWalk, nicr: bigint, exclude?: Address): RedemptionRank {
+  const rows = exclude ? w.rows.filter((r) => r.id.toLowerCase() !== exclude.toLowerCase()) : w.rows;
+  const of = exclude ? w.size : w.size + 1; // an adjusted trove is already counted in getSize()
+  const below = rows.filter((r) => r.nicr < nicr).length;
+  if (below < rows.length || w.complete) return { kind: "ranked", pos: below + 1, of };
+  return { kind: "above", of, walked: rows.length };
 }

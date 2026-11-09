@@ -7,8 +7,8 @@ import { BTC_FAUCET_URL, EXPLORER_URL, mezoProtocol, type Deployment } from "@/l
 import { publicClient } from "@/lib/chain";
 import {
   BorrowerOperationsAbi, CCR, ICR_RECOMMENDED, ICR_WARN, MCR, GAS_COMPENSATION,
-  collForIcr, computeHints, openTroveQuote, readProtocol, readTrove, repayQuote, withdrawQuote,
-  type Protocol, type Trove,
+  collForIcr, computeHints, nominalCr, openTroveQuote, rankPlanned, rankTrove, readProtocol, readRedemptionWalk, readTrove,
+  repayQuote, withdrawQuote, type Protocol, type RedemptionRank, type Trove,
 } from "@/lib/mezo";
 import { num, usd } from "@/lib/format";
 import type { Guide } from "./PriceChart";
@@ -45,6 +45,7 @@ const wei = (s: string, d = 18) => { try { const v = parseUnits((s || "0").trim(
 const btc = (v?: bigint, d = 4) => (v === undefined ? "–" : Number(formatUnits(v, 18)).toLocaleString("en-US", { maximumFractionDigits: d, minimumFractionDigits: d }));
 const pct = (r?: bigint) => (r === undefined || r === 0n ? "–" : `${(Number(formatUnits(r, 16))).toFixed(1)}%`);
 const shortH = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+const rankTxt = (r: RedemptionRank) => (r.kind === "ranked" ? `#${r.pos} from the bottom of ${r.of}` : `not among the ${r.walked} lowest of ${r.of}`);
 const errMsg = (e: unknown) => (e as { shortMessage?: string }).shortMessage ?? (e as Error).message ?? String(e);
 
 function Row({ k, v, cls }: { k: React.ReactNode; v: React.ReactNode; cls?: string }) {
@@ -128,6 +129,21 @@ export default function Funding(props: {
     queryFn: () => computeHints(mz, hintArgs!.coll, hintArgs!.principal),
     enabled: !!hintArgs && troveRoutes, staleTime: 30000, retry: 0,
   });
+
+  // Redemption order: the lowest troves of SortedTroves, read once and ranked client-side (no amounts in the key, so
+  // typing never re-walks the list). Only while a trove is involved, cached for a minute.
+  const walkOn = troveRoutes && (route !== "musd" || hasTrove);
+  const walk = useQuery({
+    queryKey: ["mezo-redemption-walk", mz.SortedTroves],
+    queryFn: () => readRedemptionWalk(mz, p?.price),
+    enabled: walkOn, staleTime: 60_000, refetchInterval: walkOn ? 60_000 : false, refetchOnWindowFocus: false, retry: 0,
+  });
+  const w = walk.data;
+  const rankNow = w && hasTrove && who ? rankTrove(w, who) : undefined;
+  const rankPlan = !w ? undefined
+    : route === "btc" && oq && coll > 0n ? rankPlanned(w, nominalCr(coll, oq.principal))
+    : route === "trove" && wq && t && who && more > 0n ? rankPlanned(w, nominalCr(t.coll, wq.principal), who)
+    : undefined;
 
   // Lines for the shared chart: trove liquidation (ICR 110%) next to the position's bust line.
   const planLiq = route === "btc" && oq && coll > 0n ? oq.liq : route === "trove" && wq && more > 0n ? wq.liq : curLiq;
@@ -335,6 +351,24 @@ export default function Funding(props: {
           <div><i className="sw" style={{ borderTop: `1.5px dashed ${side === "long" ? "var(--green)" : "var(--red)"}` }} /> Bust line <b className="num">{props.bust ? usd(props.bust) : "–"}</b> <span className="k">{dist(props.bust)}</span></div>
           <div><i className="sw trove" /> Trove liq. <b className="num">{planLiq ? usd(planLiq) : "–"}</b> <span className="k">{dist(planLiq)}</span></div>
           <div className="fine">The position busts at its own line; the trove is a separate loan and is liquidated only at its 110% line.</div>
+        </div>
+      )}
+      {walkOn && (
+        <div className="redeem" data-panel="redemption">
+          {route !== "btc" && (
+            <Row k="Redemption order · your trove" v={rankNow ? rankTxt(rankNow) : walk.isError ? "unavailable" : "reading…"} />
+          )}
+          {route === "btc" && (
+            <Row k="Redemption order · planned trove" v={rankPlan ? `≈ ${rankTxt(rankPlan)}` : walk.isError ? "unavailable" : coll === 0n ? "–" : "reading…"} />
+          )}
+          {route === "trove" && more > 0n && rankPlan && <Row k="After this borrow" v={`≈ ${rankTxt(rankPlan)}`} />}
+          <div className="fine">
+            Redemptions take the lowest-ICR troves first: some of the trove&apos;s BTC is swapped for MUSD debt at face value.
+            Margin already in Bustline is not affected.
+            {w && w.rows.length > 0 && w.rows[0].icr !== undefined && (
+              <> Lowest trove ICR now <span className="num">{pct(w.rows[0].icr)}</span>, {w.rows.length}th lowest <span className="num">{pct(w.rows[w.rows.length - 1].icr)}</span>.</>
+            )}
+          </div>
         </div>
       )}
       {hintArgs && <div className="fine hint">Sorted-list hints {hints.data ? <span className="num">{shortH(hints.data.upper)} / {shortH(hints.data.lower)}</span> : hints.isError ? "unavailable" : "computing…"} · recomputed before sending</div>}

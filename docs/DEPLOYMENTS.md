@@ -103,10 +103,16 @@ independent users and not Mezo Passport / UI sessions. Each step sends the same 
 | `MUSD.approve` | Deposit MUSD | B | `0x0a4b2c25b590bfac03b2d3de19612af85941201deb1e665a8ab3bcb4baa36d77` |
 | `requestOpen` short 80 MUSD × 50 | Deposit MUSD | B | `0x85d0e85b57025a8cc58f5098a81eade6e0fd76714a246487752648dd5bacf259` |
 | Fills (keeper), all at 75,791.80 | — | keeper | `0xaa8945f8d6513b1bde6ff546ea640a701a6a778dc2542fca3cae17c55b0e75a8`, `0xd5881b17dfd4ccd75e1a7debbaa2cb8eb70d6a37cda94817a41c097dbd131348`, `0x10ba2327bc8cae84f93f6740f0f796a5b306e0abddcfe99b1cbb606ba832daea` |
+| `requestClose` short 80 | — | B | `0xe3f6251cc7ccec094e945456e522cba656636eebda9cd7f3397a64eee179667f` |
 | Close short (loss 4.10 MUSD to the house, 410.33 MPAPER minted to B) | — | keeper | `0x6fa67a5fabc89ac26dce4a41f8d81cc84b9da6f9b0554f7cdb99362c2e63366c` |
+| MPAPER `approve` for RebateStaking | — | B | `0x374e6468cebdd16b9fc94df61094a9feea338101b4e31a6c15c9cf95c2de48e8` |
 | B stakes 410.33 MPAPER | — | B | `0x6c5c77deffc635fd6786930430a650ff785f18e3563872659b529ef51a72c12b` |
+| `requestClose` long ×2 | — | A | `0xc8d55e255ce0e328a2443404b8c2d68367145d94cf0e8181b5e7a05d34dce1a6`, `0x1f5c793385cfb0a8038b89ef559d7ec4d688b79447f3bd86fddea5ec921c3d7e` |
 | Close long 50 (paid in full; protocol fee 0.0222, staker fee 0.0443) | — | keeper | `0x939b8c2c24a1c0e3ddf6a7d7c7b1b50315ddc6bb5f1fa0a7d80ed4ee609435e6` |
 | Close long 30 (paid in full; protocol fee 0.0133, staker fee 0.0266) | — | keeper | `0x23ea67fbb6394aa3c4209479c3a554073a2af612aa7f016c6bf668b4089b3f8b` |
+
+With these rows the list covers every transaction A (8) and B (5) have sent. The same set, labelled by sender, is on the
+site at [`/proof`](https://bustline.planz.workers.dev/proof).
 
 Result: `totalProtocolFees` 0.0355 MUSD (now on the treasury), 0.0709 MUSD to stakers, house cash 0.557 MUSD,
 queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD) here; the first Stability Pool deposit followed op C (2026-11-10).

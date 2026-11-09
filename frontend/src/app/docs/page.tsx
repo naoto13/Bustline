@@ -14,6 +14,7 @@ const TOC: [id: string, label: string][] = [
   ["what", "What Bustline is"],
   ["trade", "How a trade works"],
   ["funding", "Funding a trade"],
+  ["redemptions", "Redemptions & recovery mode"],
   ["house", "The house & payout queue"],
   ["mpaper", "MPAPER & staking"],
   ["fees", "Fees & revenue"],
@@ -54,6 +55,7 @@ export default function DocsPage() {
           <Link href="/?tab=house">House</Link>
           <Link href="/?tab=mpaper">MPAPER</Link>
           <a className="active" aria-current="page" href="#top">Docs</a>
+          <Link href="/proof">Proof</Link>
         </nav>
         <div className="navr">
           <span className="chip tag-testnet">TESTNET</span>
@@ -183,6 +185,40 @@ export default function DocsPage() {
               borrowed MUSD stays in your wallet and the flow resumes from that step. Use “Repay trove” (<code>repayMUSD</code>) to pay
               debt back.
             </p>
+          </section>
+
+          <section id="redemptions">
+            <h2>Redemptions &amp; recovery mode</h2>
+            <p>
+              A trove-funded trade depends on a Mezo trove, and two protocol-wide rules can touch that trove even when its own
+              ICR is above 110%.
+            </p>
+            <h3>Redemptions</h3>
+            <p>
+              Anyone can hand MUSD to the Mezo protocol and receive BTC at face value. That BTC comes from the troves with the{" "}
+              <b>lowest collateral ratio first</b> (the bottom of <code>SortedTroves</code>, walking up from{" "}
+              <code>getLast()</code>). A redeemed trove loses some BTC collateral and the
+              same value of MUSD debt, so at the current price the trove keeps its net value, but you hold less BTC than you deposited.
+            </p>
+            <ul className="docs-list">
+              <li>Keep your ICR comfortably above the other troves, not just above 110%.</li>
+              <li>
+                The funding panel shows where your trove (or the one you are planning) sits in redemption order, e.g.{" "}
+                <i>#3 from the bottom of 347</i>. It reads the 40 lowest troves and is cached for a minute; anything higher is
+                shown as <i>not among the 40 lowest</i>.
+              </li>
+              <li>Margin already deposited in Bustline is not affected. Redemptions touch only the trove.</li>
+            </ul>
+            <h3>Recovery mode</h3>
+            <p>
+              When the system-wide collateral ratio (TCR) of all Mezo troves falls below <span className="num">150%</span>, the
+              protocol enters recovery mode until TCR recovers. The funding panel shows a banner with the current TCR.
+            </p>
+            <Facts rows={[
+              ["New or adjusted troves", <>need ICR ≥ <span className="num">150%</span>; “Start with BTC” blocks lower values</>],
+              ["Borrowing more", <>paused — “From my trove” is disabled (a pure borrow can only lower ICR)</>],
+              ["Borrowing fee", <>waived (<span className="num">0%</span> instead of 0.1%)</>],
+            ]} />
           </section>
 
           <section id="house">
@@ -319,6 +355,7 @@ export default function DocsPage() {
               <li><b>Unaudited hackathon build.</b> Single market, isolated margin, no partial closes.</li>
               <li><b>Losses can be total.</b> At up to 100x, a small move can bust the full margin.</li>
               <li><b>Profit can wait.</b> If the house is short, winnings sit in the FIFO queue until later losses repay it.</li>
+              <li><b>Trove redemptions.</b> A low-ICR trove can be partly redeemed (BTC swapped for MUSD debt at face value). See <a className="docs-link" href="#redemptions">Redemptions &amp; recovery mode</a>.</li>
               <li><b>Stability Pool risk.</b> Trove liquidations can shrink the house’s pool deposit, and pool withdrawals are blocked while the lowest trove is below 110% ICR or the PriceFeed is down.</li>
               <li><b>Pause halts liquidations too.</b> While paused, positions can’t be filled or liquidated; prices that move past a bust line during a pause settle only after unpause.</li>
               <li><b>Permissioned keeper.</b> A single keeper run by the team fills orders; unfilled orders become refundable after 5 minutes.</li>
@@ -331,6 +368,7 @@ export default function DocsPage() {
             <ul className="docs-links">
               <li><a className="docs-link" href={REPO} target="_blank" rel="noreferrer">GitHub — naoto13/Bustline ↗</a></li>
               <li><a className="docs-link" href={`${REPO}/blob/main/CHANGELOG.md`} target="_blank" rel="noreferrer">CHANGELOG ↗</a></li>
+              <li><Link className="docs-link" href="/proof">On-chain proof — every v3.1 tx and who sent it</Link></li>
               <li><a className="docs-link" href={`${REPO}/blob/main/docs/DEPLOYMENTS.md`} target="_blank" rel="noreferrer">Deployments &amp; on-chain proof ↗</a></li>
               <li><a className="docs-link" href={BTC_FAUCET_URL} target="_blank" rel="noreferrer">Mezo testnet BTC faucet ↗</a></li>
               <li><a className="docs-link" href={EXPLORER_URL} target="_blank" rel="noreferrer">Mezo testnet explorer ↗</a></li>

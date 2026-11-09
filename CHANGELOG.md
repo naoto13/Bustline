@@ -14,6 +14,12 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 - First Stability Pool deposit (2026-11-10): the floor was lowered to 0.25 MUSD through the timelock (testnet only,
   op C in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-timelock-operations)), and the keeper deposited 0.2785 MUSD.
 
+- Proof page at `/proof`: all 48 v3.1 transactions (deploy broadcast, timelock operations, every test-wallet
+  transaction, all order fills, the first Stability Pool deposit), each labelled by the wallet that sent it, plus a
+  Limits box (testnet only, no external audit, 0 outside users) and live house figures.
+- Trove funding panel shows where the trove sits in Mezo's redemption order (lowest ICR is redeemed first); Docs
+  section "Redemptions & recovery mode".
+
 Still to do before the Wave 2 deadline (2026-11-15):
 
 - Trades by outside users, and a run of the funding routes through the UI with a Passport BTC wallet.

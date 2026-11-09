@@ -281,6 +281,7 @@ function Dashboard() {
           </a>
         ))}
         <Link href="/docs" className="muted">Docs</Link>
+        <Link href="/proof" className="muted">Proof</Link>
       </nav>
       <div className="navr">
         <span className="chip tag-testnet">TESTNET</span>
