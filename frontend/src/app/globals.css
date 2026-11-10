@@ -275,7 +275,7 @@ a.who:hover { text-decoration: underline; text-underline-offset: 2px; }
 .who-deployer { background: #E3DAC6; color: #5E5440; border-color: #D3C7AB; }
 .who-timelock { background: var(--bg); color: var(--ink); border-color: var(--ink); }
 .who-keeper, .who-signer { background: #DCE3E8; color: var(--trove); border-color: #B9C8D3; }
-.who-walletA, .who-walletB { background: var(--amberbg); color: var(--amber); border-color: #E2CB98; }
+.who-walletA, .who-walletB, .who-walletC { background: var(--amberbg); color: var(--amber); border-color: #E2CB98; }
 @media (max-width: 900px) {
   .proof-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

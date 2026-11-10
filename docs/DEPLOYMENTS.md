@@ -111,11 +111,36 @@ independent users and not Mezo Passport / UI sessions. Each step sends the same 
 | Close long 50 (paid in full; protocol fee 0.0222, staker fee 0.0443) | — | keeper | `0x939b8c2c24a1c0e3ddf6a7d7c7b1b50315ddc6bb5f1fa0a7d80ed4ee609435e6` |
 | Close long 30 (paid in full; protocol fee 0.0133, staker fee 0.0266) | — | keeper | `0x23ea67fbb6394aa3c4209479c3a554073a2af612aa7f016c6bf668b4089b3f8b` |
 
-With these rows the list covers every transaction A (8) and B (5) have sent. The same set, labelled by sender, is on the
+With these rows the list covered every transaction A (8) and B (5) had sent by 2026-11-07. The same set, labelled by sender, is on the
 site at [`/proof`](https://bustline.planz.workers.dev/proof).
 
 Result: `totalProtocolFees` 0.0355 MUSD (now on the treasury), 0.0709 MUSD to stakers, house cash 0.557 MUSD,
 queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD) here; the first Stability Pool deposit followed op C (2026-11-10).
+
+### v3.1 UI run with a scripted injected EVM wallet (2026-11-10)
+
+UI run with a scripted injected EVM wallet (team test wallet). Test wallet A connected through the app's own connect
+modal on the live site (`https://bustline.planz.workers.dev`): an EIP-6963 wallet ("Bustline test signer (scripted)")
+injected into the page and backed by a local signer on 127.0.0.1. Every step was clicked in the Funding panel and the
+Positions tab. This does **not** exercise Mezo Passport's BTC (Safe) accounts; that is still open. Approval was skipped
+by the app (allowance already set). All receipts have status 1.
+
+| Step | Route | From | Tx |
+| --- | --- | --- | --- |
+| `withdrawMUSD` 20 (ICR after: 153.5%) | From my trove | A | `0x79b10714d2438f140f2d16d1dcca7f5114e025e7ca6e12515250b306a51a8d3b` |
+| `requestOpen` long 20 MUSD × 50 (order 6) | From my trove | A | `0x93c663fba8416a3585b4268b46d61e1a75b7c6b940142bc3ea4160170399c6c8` |
+| Fill: position #3 opened at 74,446.82 | — | keeper | `0xc79e55ace65547bb581ffc8dbc2115d14d418c8f95769475f5c0ca09bb52cf87` |
+| `requestClose` #3 (order 7) | — | A | `0x687187880b2adc8d2354c2cdebdc3a4e222aba4498ba16aa89625dd09064882b` |
+| Close #3 at 74,469.10 (raw PnL +0.30 MUSD, nothing queued) | — | keeper | `0x608896fb903eb799f92d03152bcbb08cc3c00f2b4fd76f7a885d9ace29efad6f` |
+| `requestOpen` short 20 MUSD × 20 (order 8) | Deposit MUSD | A | `0x05b1b292d7c652026e37035ccf5adfe6ef88921b01451b7a2e5f8b6a13762863` |
+| Fill: position #4 opened at 74,439.10 | — | keeper | `0x3fd73b29b9d3a14616eb95f53006bc3008c7b19041f93a01e66f94c8c8f25637` |
+| `requestClose` #4 (order 9) | — | A | `0x68e6151a6e69feaf7602d4c18d0e054b1d3b875ba3b32ed7ab99cf722815a7cc` |
+| Close #4 at 74,424.70 (raw PnL +0.08 MUSD, nothing queued) | — | keeper | `0x9d95e809cd5fe6adab9578be65168bb6fb73b91eea431a03ad321e5e9555720b` |
+
+Still open: the "Start with BTC" route in the UI. Test wallet C `0x2104bce039BAa59C39c4791abbdf054b9c8e8290` was
+generated for it, but the testnet faucet rejected the scripted request (captcha), so C is unfunded and has sent nothing.
+
+With these rows the lists cover every transaction A (13), B (5) and C (0) have sent. Outside users so far: 0.
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
 
