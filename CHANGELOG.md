@@ -17,6 +17,9 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 - Proof page at `/proof`: all 48 v3.1 transactions (deploy broadcast, timelock operations, every test-wallet
   transaction, all order fills, the first Stability Pool deposit), each labelled by the wallet that sent it, plus a
   Limits box (testnet only, no external audit, 0 outside users) and live house figures.
+- UI runs (2026-11-10): all three funding routes clicked through the live app with team test wallets connected as an
+  injected EVM wallet (connect → fund → open → fill → close); wallet C was funded from the Mezo testnet faucet. Mezo
+  Passport's BTC accounts are not tested yet.
 - Trove funding panel shows where the trove sits in Mezo's redemption order (lowest ICR is redeemed first); Docs
   section "Redemptions & recovery mode".
 

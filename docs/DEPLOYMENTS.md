@@ -119,11 +119,11 @@ queue empty, no liquidation. House cash never exceeded `spMinLiquid` (50 MUSD) h
 
 ### v3.1 UI run with a scripted injected EVM wallet (2026-11-10)
 
-UI run with a scripted injected EVM wallet (team test wallet). Test wallet A connected through the app's own connect
+UI run with a scripted injected EVM wallet (team test wallet). Test wallets A and C connected through the app's own connect
 modal on the live site (`https://bustline.planz.workers.dev`): an EIP-6963 wallet ("Bustline test signer (scripted)")
 injected into the page and backed by a local signer on 127.0.0.1. Every step was clicked in the Funding panel and the
-Positions tab. This does **not** exercise Mezo Passport's BTC (Safe) accounts; that is still open. Approval was skipped
-by the app (allowance already set). All receipts have status 1.
+Positions tab. This does **not** exercise Mezo Passport's BTC (Safe) accounts; that is still open. For A, approval was
+skipped by the app (allowance already set). All receipts have status 1.
 
 | Step | Route | From | Tx |
 | --- | --- | --- | --- |
@@ -136,11 +136,19 @@ by the app (allowance already set). All receipts have status 1.
 | Fill: position #4 opened at 74,439.10 | — | keeper | `0x3fd73b29b9d3a14616eb95f53006bc3008c7b19041f93a01e66f94c8c8f25637` |
 | `requestClose` #4 (order 9) | — | A | `0x68e6151a6e69feaf7602d4c18d0e054b1d3b875ba3b32ed7ab99cf722815a7cc` |
 | Close #4 at 74,424.70 (raw PnL +0.08 MUSD, nothing queued) | — | keeper | `0x9d95e809cd5fe6adab9578be65168bb6fb73b91eea431a03ad321e5e9555720b` |
+| `openTrove` (0.0445 BTC collateral, 1,800 MUSD borrowed, ICR 165.6%) | Start with BTC | C | `0x4999da6475e61a602287c75cf28279c847e6bc31f09f5b0228946829af61b1d2` |
+| `MUSD.approve` | Start with BTC | C | `0x6a1a5dd02e2e26d53d4edbb84aac8ac071f1daee2c201c826360f80f5c9f34e1` |
+| `requestOpen` long 30 MUSD × 30 (order 10) | Start with BTC | C | `0x34054c22f6e346965d5b8b124af1ab4e54a270f91579c60006437fc5c7bff923` |
+| Fill: position #5 opened at 74,556.40 | — | keeper | `0x98c125e39ddbbf83399e8d46b3df2c81b2070721eb14b1078f36b0dd8ccc6c39` |
+| `requestClose` #5 (order 11) | — | C | `0xfe7534052404b1cc4ecbb1ee638b5c2730724377f8a6d1ba023e4b94f34520a5` |
+| Close #5 at 74,570.00 (raw PnL +0.16 MUSD, nothing queued) | — | keeper | `0xb06915717d22aadf8bf6d0646e0849556774b8eeb79886f8f362d28988ed4277` |
 
-Still open: the "Start with BTC" route in the UI. Test wallet C `0x2104bce039BAa59C39c4791abbdf054b9c8e8290` was
-generated for it, but the testnet faucet rejected the scripted request (captcha), so C is unfunded and has sent nothing.
+Test wallet C `0x2104bce039BAa59C39c4791abbdf054b9c8e8290` was generated for the "Start with BTC" route. The team
+claimed 0.05 BTC for it from the Mezo testnet faucet (a scripted request was rejected by the captcha):
+`0xaf12c320e189c72922e444b0ca76f48d281bb9c7bd36cee9c4d827e96c6b4d18`, sent by the faucet `0xc2a912d17e0dfae27e17ef0cf3baf5bec659a6ea`.
+C's trove after the run: 0.0445 BTC collateral, 2,001.80 MUSD debt, ICR 165.6%.
 
-With these rows the lists cover every transaction A (13), B (5) and C (0) have sent. Outside users so far: 0.
+With these rows the lists cover every transaction A (13), B (5) and C (4) have sent. Outside users so far: 0.
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
 
