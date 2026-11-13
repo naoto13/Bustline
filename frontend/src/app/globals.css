@@ -15,15 +15,16 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 
 /* nav */
-.nav { height: 34px; display: flex; align-items: center; gap: 18px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 5; }
+/* wraps instead of overflowing: on wide screens everything fits on one 34px row, so this only kicks in when it would not */
+.nav { min-height: 34px; display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 5; }
 .wordmark { font-size: 17px; font-weight: 500; letter-spacing: -0.02em; }
 .wordmark .cursor { animation: blink 1.1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-.nav nav { display: flex; gap: 2px; height: 100%; }
+.nav nav { display: flex; gap: 2px; align-self: stretch; }
 .nav nav a { display: flex; align-items: center; padding: 0 10px; font-size: 11px; font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .nav nav a.active { border-bottom-color: var(--ink); }
 .nav nav a.muted { color: var(--muted); }
-.navr { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 11px; }
+.navr { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 14px; font-size: 11px; }
 .navbal b { font-weight: 500; }
 .navbtn { background: none; border: 0; padding: 4px 6px; font-weight: 500; cursor: pointer; }
 .navbtn:hover { text-decoration: underline; }
@@ -109,6 +110,7 @@ input[type=number]::-webkit-inner-spin-button { opacity: .4; }
 .log { font-family: var(--mono); font-size: 10.5px; white-space: pre-wrap; color: var(--ink); max-height: 220px; overflow: auto; padding: 6px 2px; }
 .hiddenlog { display: none; }
 .statusgrid { max-width: 640px; padding: 6px 0; }
+.tblscroll { overflow-x: auto; } /* wide numeric tables scroll inside their own box on phones, never the page */
 .tbl { width: 100%; border-collapse: collapse; font-size: 10.5px; }
 .tbl th { text-align: left; font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 6px 6px; border-bottom: 1px solid var(--line); }
 .tbl td { padding: 4px 6px; border-bottom: 1px solid #E5D9BD; }
@@ -286,4 +288,15 @@ a.who:hover { text-decoration: underline; text-underline-offset: 2px; }
   .nav { gap: 8px; padding: 0 10px; }
   .nav nav { gap: 0; }
   .nav nav a { padding: 0 5px; }
+}
+/* phone header: wordmark + status/wallet on the first row, the page tabs on a full-width second row */
+@media (max-width: 560px) {
+  .nav { gap: 0 10px; }
+  .nav .wordmark { min-height: 34px; display: flex; align-items: center; }
+  .navr { flex: 1 1 0; min-width: 0; gap: 4px 8px; padding: 4px 0; }
+  .nav nav { order: 3; flex: 0 0 calc(100% + 24px); height: 30px; margin: 0 -12px; padding: 0 6px; border-top: 1px solid var(--line); }
+}
+@media (max-width: 420px) {
+  .nav { gap: 0 8px; }
+  .nav nav { flex-basis: calc(100% + 20px); margin: 0 -10px; padding: 0 4px; }
 }

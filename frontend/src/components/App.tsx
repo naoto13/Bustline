@@ -397,25 +397,27 @@ function Dashboard() {
   );
 
   const positionsTable = (
-    <table className="tbl">
-      <thead><tr><th>#</th><th>Side</th><th>Size</th><th>Margin</th><th>Lev</th><th>Entry</th><th>Mark</th><th>Bust Price</th><th>Raw PnL</th><th></th></tr></thead>
-      <tbody>
-        {myPositions.map((p) => {
-          const pnl = mk ? rawPnl(p, mk.price) : 0n;
-          return (
-            <tr key={String(p.id)}>
-              <td>{String(p.id)}</td>
-              <td><span className={`tag ${p.isLong ? "tlong" : "tshort"}`}>{p.isLong ? "LONG" : "SHORT"}</span></td>
-              <td>{usd(p.size, 0)}</td><td>{num(p.margin)}</td><td>{String(p.size / (p.margin || 1n))}x</td>
-              <td>{usd(p.entryPrice)}</td><td>{usd(mk?.price)}</td>
-              <td className="neg">{usd(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk?.bufDiv ?? 2000n))}</td>
-              <td className={pnl < 0n ? "neg" : "pos"}>{signed(pnl)}</td>
-              <td><button className="pill" disabled={busy} title={paused ? "Allowed while paused — the close fills after unpause" : undefined} onClick={() => run(`requestClose #${p.id}`, () => write(d.HouseExchange, EX, "requestClose", [p.id, 0n]))}>Close</button></td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="tblscroll">
+      <table className="tbl">
+        <thead><tr><th>#</th><th>Side</th><th>Size</th><th>Margin</th><th>Lev</th><th>Entry</th><th>Mark</th><th>Bust Price</th><th>Raw PnL</th><th></th></tr></thead>
+        <tbody>
+          {myPositions.map((p) => {
+            const pnl = mk ? rawPnl(p, mk.price) : 0n;
+            return (
+              <tr key={String(p.id)}>
+                <td>{String(p.id)}</td>
+                <td><span className={`tag ${p.isLong ? "tlong" : "tshort"}`}>{p.isLong ? "LONG" : "SHORT"}</span></td>
+                <td>{usd(p.size, 0)}</td><td>{num(p.margin)}</td><td>{String(p.size / (p.margin || 1n))}x</td>
+                <td>{usd(p.entryPrice)}</td><td>{usd(mk?.price)}</td>
+                <td className="neg">{usd(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk?.bufDiv ?? 2000n))}</td>
+                <td className={pnl < 0n ? "neg" : "pos"}>{signed(pnl)}</td>
+                <td><button className="pill" disabled={busy} title={paused ? "Allowed while paused — the close fills after unpause" : undefined} onClick={() => run(`requestClose #${p.id}`, () => write(d.HouseExchange, EX, "requestClose", [p.id, 0n]))}>Close</button></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 
   const bottom = (
@@ -437,19 +439,21 @@ function Dashboard() {
         )}
         {btab === "orders" && (
           <>
-            <table className="tbl">
-              <thead><tr><th>#</th><th>Type</th><th>Side</th><th>Margin</th><th>Size</th><th>Created</th><th>Status</th></tr></thead>
-              <tbody>
-                {myOrders.map((o) => (
-                  <tr key={String(o.id)}>
-                    <td>{String(o.id)}</td><td>{o.kind === 0 ? "OPEN" : "CLOSE"}</td>
-                    <td><span className={`tag ${o.isLong ? "tlong" : "tshort"}`}>{o.isLong ? "LONG" : "SHORT"}</span></td>
-                    <td>{num(o.margin)}</td><td>{usd(o.size, 0)}</td><td>{new Date(Number(o.createdAt) * 1000).toLocaleTimeString()}</td>
-                    <td><span className="tag tgrey">{paused ? "WAITING FOR UNPAUSE" : "WAITING FOR KEEPER"}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="tblscroll">
+              <table className="tbl">
+                <thead><tr><th>#</th><th>Type</th><th>Side</th><th>Margin</th><th>Size</th><th>Created</th><th>Status</th></tr></thead>
+                <tbody>
+                  {myOrders.map((o) => (
+                    <tr key={String(o.id)}>
+                      <td>{String(o.id)}</td><td>{o.kind === 0 ? "OPEN" : "CLOSE"}</td>
+                      <td><span className={`tag ${o.isLong ? "tlong" : "tshort"}`}>{o.isLong ? "LONG" : "SHORT"}</span></td>
+                      <td>{num(o.margin)}</td><td>{usd(o.size, 0)}</td><td>{new Date(Number(o.createdAt) * 1000).toLocaleTimeString()}</td>
+                      <td><span className="tag tgrey">{paused ? "WAITING FOR UNPAUSE" : "WAITING FOR KEEPER"}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {myOrders.length === 0 && <div className="empty">No pending orders. Orders are filled by the keeper at the next oracle update.</div>}
           </>
         )}
@@ -547,37 +551,41 @@ function Dashboard() {
         </div>
       </Panel>
       <Panel title="Payout Queue" className="wide" right={<span className="k">FIFO · {mk?.queue.length ?? 0} entries</span>}>
-        <table className="tbl">
-          <thead><tr><th>#</th><th>User</th><th>Amount</th><th>Ahead</th></tr></thead>
-          <tbody>
-            {(mk?.queue ?? []).map((q, i) => (
-              <tr key={String(q.idx)} className={who && q.to.toLowerCase() === who.toLowerCase() ? "me" : ""}>
-                <td>{String(q.idx)}</td><td className="num">{short(q.to)}</td><td>{num(q.amount)} MUSD</td>
-                <td>{num(mk!.queue.slice(0, i).reduce((a, x) => a + x.amount, 0n))}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="tblscroll">
+          <table className="tbl">
+            <thead><tr><th>#</th><th>User</th><th>Amount</th><th>Ahead</th></tr></thead>
+            <tbody>
+              {(mk?.queue ?? []).map((q, i) => (
+                <tr key={String(q.idx)} className={who && q.to.toLowerCase() === who.toLowerCase() ? "me" : ""}>
+                  <td>{String(q.idx)}</td><td className="num">{short(q.to)}</td><td>{num(q.amount)} MUSD</td>
+                  <td>{num(mk!.queue.slice(0, i).reduce((a, x) => a + x.amount, 0n))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {(mk?.queue.length ?? 0) === 0 && <div className="empty">Queue empty — every winner has been paid.</div>}
       </Panel>
       <Panel title="Open Positions (All)" className="wide">
-        <table className="tbl">
-          <thead><tr><th>#</th><th>User</th><th>Side</th><th>Size</th><th>Entry</th><th>Bust</th><th>Raw PnL</th></tr></thead>
-          <tbody>
-            {(mk?.positions ?? []).map((p) => {
-              const pnl = rawPnl(p, mk!.price);
-              return (
-                <tr key={String(p.id)}>
-                  <td>{String(p.id)}</td><td className="num">{short(p.owner)}</td>
-                  <td><span className={`tag ${p.isLong ? "tlong" : "tshort"}`}>{p.isLong ? "LONG" : "SHORT"}</span></td>
-                  <td>{usd(p.size, 0)}</td><td>{usd(p.entryPrice)}</td>
-                  <td className="neg">{usd(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk!.bufDiv))}</td>
-                  <td className={pnl < 0n ? "neg" : "pos"}>{signed(pnl)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="tblscroll">
+          <table className="tbl">
+            <thead><tr><th>#</th><th>User</th><th>Side</th><th>Size</th><th>Entry</th><th>Bust</th><th>Raw PnL</th></tr></thead>
+            <tbody>
+              {(mk?.positions ?? []).map((p) => {
+                const pnl = rawPnl(p, mk!.price);
+                return (
+                  <tr key={String(p.id)}>
+                    <td>{String(p.id)}</td><td className="num">{short(p.owner)}</td>
+                    <td><span className={`tag ${p.isLong ? "tlong" : "tshort"}`}>{p.isLong ? "LONG" : "SHORT"}</span></td>
+                    <td>{usd(p.size, 0)}</td><td>{usd(p.entryPrice)}</td>
+                    <td className="neg">{usd(bustPrice(p.isLong, p.margin, p.size, p.entryPrice, mk!.bufDiv))}</td>
+                    <td className={pnl < 0n ? "neg" : "pos"}>{signed(pnl)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         {(mk?.positions.length ?? 0) === 0 && <div className="empty">No open positions on the exchange.</div>}
       </Panel>
     </div>
