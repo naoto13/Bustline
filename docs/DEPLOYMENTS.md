@@ -6,7 +6,7 @@ Unaudited demo. **Current state (2026-11-15):** v3.1 (`deployments/testnet-v3.1.
 Worker (https://bustline-keeper.planz.workers.dev) fills, liquidates and pushes prices on v3.1, and the production
 frontend at https://bustline.planz.workers.dev (Cloudflare Workers static assets) reads v3.1. All six v3.1 contracts
 are verified on the explorer (Blockscout, 2026-11-07). Since 2026-11-15 (timelock op D) the Pyth pull oracle is v3.1's
-settlement oracle; the keeper-signed oracle stays deployed as the rollback target. The trades on v3.1 so far come only from the team's test wallets (scripted on 2026-11-07, through the UI on 2026-11-10), all settled on the keeper-signed oracle; no outside users yet (below). v3 (2026-11-06) is
+settlement oracle; the keeper-signed oracle stays deployed as the rollback target. The trades on v3.1 so far come only from the team's test wallets (scripted on 2026-11-07, through the UI on 2026-11-10, scripted again on 2026-11-15). The trades up to 2026-11-10 were settled on the keeper-signed oracle; the 10 round trips on 2026-11-15 were opened and closed at Pyth prices. No outside users yet (below). v3 (2026-11-06) is
 retired (it never had a trade) and v2 is frozen; both are kept below as history.
 
 ## v3.1 (Wave 2, current) — `deployments/testnet-v3.1.json`
@@ -85,7 +85,7 @@ Record any `unpause()` operation here too (schedule / execute txs, salt).
 4. Copied `deployments/testnet-v3.1.json` to `frontend/public/deployment.testnet.json`, rebuilt and redeployed the
    static site (2026-11-07).
 5. Scheduled op B (above) from the proposer. Executed after the delay: `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` (`spEnabled = true`).
-6. First v3.1 trades (2026-11-07) from two scripted test wallets, below. Still open: trades by outside users.
+6. First v3.1 trades (2026-11-07) from two scripted test wallets, below; the first Pyth-settled round trips followed on 2026-11-15. Still open: trades by outside users.
 
 ### v3.1 test-wallet trades (2026-11-07)
 
@@ -151,7 +151,35 @@ claimed 0.05 BTC for it from the Mezo testnet faucet (a scripted request was rej
 `0xaf12c320e189c72922e444b0ca76f48d281bb9c7bd36cee9c4d827e96c6b4d18`, sent by the faucet `0xc2a912d17e0dfae27e17ef0cf3baf5bec659a6ea`.
 C's trove after the run: 0.0445 BTC collateral, 2,001.80 MUSD debt, ICR 165.6%.
 
-With these rows the lists cover every transaction A (13), B (5) and C (4) have sent. Outside users so far: 0.
+With these rows the lists covered every transaction A (13), B (5) and C (4) had sent by 2026-11-10. Outside users so far: 0.
+
+### v3.1 Pyth-settled round trips (2026-11-15)
+
+The first trades after the oracle switch (op D, 19:57 JST). Between 20:46 and 20:56 JST test wallet A
+(`0x13b11d5C03f3B0fd26D376eE1a41D4E2B8c78011`, team test wallet, not an outside user) made 10 round trips with the
+`open` / `close` commands of `keeper/perp_keeper/testnet_ops.py` (orders 12–31, positions 6–15). The keeper
+(`0x85601C5Fc9A735a2710ba78024115039a7a32a42`) filled every open and every close with a Pyth Hermes BTC/USD update
+in the same transaction, so both the entry and the exit price are Pyth prices verified on-chain. Wins were paid
+immediately with the 2% staker fee and the 1% protocol fee; losses minted MPAPER to A. All receipts have status 1.
+
+| Position | Side, margin × leverage | Entry → exit | Result | `requestOpen` (A) | Open fill (keeper) | `requestClose` (A) | Close fill (keeper) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| #6 | long 50 MUSD × 2 | 65,461.91 → 65,463.66 | win, paid with both fees | `0x0bfba0458bb90cab11f167ad464b74718b6d27ec9e73b191a04b54b11c4a6ce7` | `0x71ee1d8cfa05e6a78ac09da78fe0ae6cf18cfc9f08e1ef1ba75c4921c219f300` | `0xc48eef1edd01667d1bbea28ab9c76713670144b4b2ebe5c8d6b2231508461486` | `0x66866e73df5ab99ae6972715f5916f4afdf4d047bb3a029c202ea7a211d52b30` |
+| #7 | short 50 MUSD × 5 | 65,484.52 → 65,459.20 | win, paid with both fees | `0x5b3e3f9f2658474222233291182afd15815aadf51fcfd542b429e40f85bd0570` | `0x595ecc00d26447d5266118e83a44b35b20281fde9228a2c9aa16993a483f29f9` | `0x8aef0a0bbf7edb90efba6f460f0c9ffe23a5f978d3590c1873041c67a442cf6d` | `0x7c908dd381827d22f4e700f3d9f7cbea8b70e1d96fa4836d5b7016e2a84af653` |
+| #8 | long 50 MUSD × 10 | 65,451.51 → 65,457.93 | win, paid with both fees | `0x56efb03738a9fa6f3605ca90d0bf33b3d9e4835b1fcdc07fa754fc3cb5497956` | `0xb034d11b276149e7568b8491ec7d9aa91ee2d1a547e53cc1f30f0ab5fc8eb08d` | `0xbb97aa53bc8f3dcf561ebdf02a2e9a7ba9b91bbd5305775b9a5d144384124397` | `0xedeab9257f8af0523a15f022e8ab5282e4b9336d17c7eefcd84f4de76794fdb8` |
+| #9 | short 40 MUSD × 15 | 65,458.01 → 65,446.96 | win, paid with both fees | `0x05f38379369d5075941610d04ecaa4540dac249bf0315c63f4e1eb46f220247a` | `0x9e037dc91b14fc4baa56cb3728c2daf7aee0f88386a209ab15f0c9d2fc2f7dc4` | `0x436a9a1257ecc9583b5777ab7b45d679c4e61c58b50752682169c43a9cff37d0` | `0xde265c92f0a0f310ea31d591d8f36ff8ce4b2bcec0a18d4dca8ceb228f247461` |
+| #10 | long 40 MUSD × 20 | 65,423.17 → 65,419.88 | loss, MPAPER minted | `0x91dc91f14f3a5e2bba46d0bcc00a013ca84623ac1d35bad6521546f1355aec6d` | `0xb1e1364b17b607a4797da4ca904c7cdb65d24a48de3d1aa49b04c3c00cf33aa4` | `0x5dc13e2d3dbc9e607bb09d4ffc451b82cf27939ed3071507bcf5427ff878894c` | `0x7296c55571daccc84948c9ec1d4148d7bf25a45b8c01ee70aafa64962bc37810` |
+| #11 | short 40 MUSD × 25 | 65,378.20 → 65,400.04 | loss, MPAPER minted | `0xb5475d5e7ed039cca2ef1cdef262872baff158bd44cdaa6a114269e41a7aa7c9` | `0x8a37ad55e9208a961fc78fef712b39148e36560f89c48b280d0eda008777ec5c` | `0x3f2e4ca3cc1b7996f7d6c3db51007b80e2c535a444974eec95688a5cac37937c` | `0x6b8c9e5e63d6f0847440699644dcb3b7b13759307b3f29e016c02cbbc31cae53` |
+| #12 | long 30 MUSD × 40 | 65,400.35 → 65,400.82 | win, nothing paid after the impact haircut | `0xfb53eb5a964f2cb4be594593623b35131f1bb577a2a605804e10814aeebc0767` | `0x15c49ac1a72b3b86effc284056d2c161e046268eff2b170dfb2bc5c93104995c` | `0x63aec4c50db3277bb31121ef7561646df03cd500d99e8a024f5b4141d2c7f4ea` | `0xbd4401888bd84b798c2587bcff7377182be8eedd080d874145617e7e2fd69324` |
+| #13 | short 30 MUSD × 50 | 65,401.26 → 65,403.96 | loss, MPAPER minted | `0x8d4e21e7e7575242534103f346718374d4db90b1d5967be39d9732bb01eb4a3c` | `0xd3066b94f48fa40e9fc77af8473e6cf639cead83ad5db2a2df8f9f35aaa7ec78` | `0x8eb23342d7d3e7a094b93c6dcfb7aa002ab76b184e26780b184f7be42639acea` | `0x90f77bc01490e8a1503e1bd179982238c25a8765497eb6e3b10d74bce5bf92c1` |
+| #14 | long 20 MUSD × 75 | 65,424.00 → 65,423.96 | loss, MPAPER minted | `0x34b3c55e4b0e1e5a166ab2d71a569cd4851de4383b195cb522f66fbde447a65c` | `0xf67676210d77e1f22250331269674f6adafeb3efdc3e75bf341800efd9d34a6c` | `0x4204da24ad1c05ba105ead881f4dd4f95124b0acd4c50e1c813f1fbd9bd0fbe5` | `0xbd6f87cda9d0f27a5bc0a3ddf5d9f54b9a13c951ffadc927f4090f7fd810bb4a` |
+| #15 | short 20 MUSD × 100 | 65,406.78 → 65,410.62 | loss, MPAPER minted | `0x79250093501fa299ecd720873c30e2f535f9b48c1cbd5c758875a8e5cdee1fb8` | `0xbc2bd520d15b400f66a49e8be113c5aeffa35efdec8eb401c7ae8d690cd85de1` | `0x61a93bd6831f7fe513caab1d575c1a225d21071f17d711b68e805624d1c27084` | `0x9ba28de2a8554e1a404b7989bac87642ae48cbc6c7e64e45723460177a3d6b3a` |
+
+During the run the keeper's `rebalance()` withdrew MUSD from the Stability Pool (`SpWithdrawn`, block 16795569):
+`0xc8fe3967ed807e43fa8f6e9f6e9ce01827f81ad7cff27c2874be96180ad78289`.
+
+Result: every order was filled (no cancels), no winning payout went to the queue, no liquidation. With these rows the
+lists cover every transaction A has sent (33). Outside users so far: 0.
 
 ## v3 (Wave 2, retired 2026-11-07) — `deployments/testnet-v3.json`
 

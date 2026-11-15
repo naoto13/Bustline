@@ -1,7 +1,7 @@
 /**
  * On-chain proof for the /proof page: every v3.1 transaction, labelled by the wallet that SENT it.
  * Source of truth: docs/DEPLOYMENTS.md ("v3.1", "v3.1 timelock operations", "v3.1 test-wallet trades (2026-11-07)",
- * "v3.1 UI run with a scripted injected EVM wallet (2026-11-10)").
+ * "v3.1 UI run with a scripted injected EVM wallet (2026-11-10)", "v3.1 Pyth-settled round trips (2026-11-15)").
  * To add activity, append a row to the matching group. `from` must be the tx sender (check it on the explorer).
  */
 export type WalletKey = "deployer" | "keeper" | "signer" | "timelock" | "walletA" | "walletB" | "walletC";
@@ -35,8 +35,8 @@ export type ProofContract = { name: string; role: string; address: `0x${string}`
  *  Together with the "setup" group this is the whole 22-tx broadcast (broadcast/DeployTestnetV3_1.s.sol/31611/run-latest.json). */
 export const CONTRACTS: ProofContract[] = [
   { name: "HouseExchange v3.1", role: "market, house, payout queue", address: "0x3c58314cd5710893519E5d962F553633ECC60cF7", deployTx: "0x067c54a0d3ebac8592cf0f874792b6baf74df59fde96cca88b253b10089c8af5" },
-  { name: "SignedPriceOracle", role: "settled every trade on this page; rollback, not active since 2026-11-15", address: "0x75a3071482883d9616bf0473B7eE25B4222b181F", deployTx: "0xf6083f0f7d138ae28a97437878c464062966136a7a7c1b46866036901178865c" },
-  { name: "PythPullOracle", role: "active oracle since 2026-11-15", address: "0xf05B4108B93A83a1a87Ba1E392a81226aAC63619", deployTx: "0xb6660709d2b56bc4d99981f39fc0cbadc6390bf3bdb54fcbcf88bbec96c7765a" },
+  { name: "SignedPriceOracle", role: "settled every trade on this page up to 2026-11-10; rollback, not active since 2026-11-15", address: "0x75a3071482883d9616bf0473B7eE25B4222b181F", deployTx: "0xf6083f0f7d138ae28a97437878c464062966136a7a7c1b46866036901178865c" },
+  { name: "PythPullOracle", role: "active oracle since 2026-11-15; settled the 2026-11-15 round trips", address: "0xf05B4108B93A83a1a87Ba1E392a81226aAC63619", deployTx: "0xb6660709d2b56bc4d99981f39fc0cbadc6390bf3bdb54fcbcf88bbec96c7765a" },
   { name: "RebateToken (MPAPER)", role: "non-transferable", address: "0xDACD4786EDCBB626BA95805E204FD18815a389D0", deployTx: "0xd4b4458c11c7592a8f2c07d93f272aadd4e0727e3f5e564a7adc4c9b40636283" },
   { name: "RebateStaking", role: "MUSD + BTC rewards", address: "0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98", deployTx: "0x327a702d86e1e4377d545a02c7559684a3f30eec9fb4aa0afd76f736669a3215" },
   { name: "TimelockController", role: "owner, 1-hour delay", address: "0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4", deployTx: "0x9f244e92a219d79cea16bee0f99c305d1c41ed528fd2394e5564e7ca195c61dc" },
@@ -166,6 +166,54 @@ export const GROUPS: ProofGroup[] = [
     title: "Stability Pool (2026-11-10)",
     rows: [
       { what: "rebalance() — first deposit, 0.2785 MUSD (SpDeposited)", from: "keeper", tx: "0x8dd07d2cc0a75ff66f7ba9c05d5f1c59d127fb6458b1da5f42498cb4eb41e042" },
+    ],
+  },
+  {
+    id: "pyth-round-trips",
+    title: "Pyth-settled round trips (2026-11-15)",
+    note: "After the oracle switch (op D), test wallet A made 10 scripted round trips (positions #6–#15, orders 12–31). The keeper filled every open and every close with a Pyth BTC/USD update in the same transaction, so entry and exit are Pyth prices verified on-chain. Wins were paid with the 2% staker fee and the 1% protocol fee; losses minted MPAPER. Nothing was queued and nothing was liquidated.",
+    rows: [
+      { what: "requestOpen long 50 MUSD × 2", from: "walletA", tx: "0x0bfba0458bb90cab11f167ad464b74718b6d27ec9e73b191a04b54b11c4a6ce7" },
+      { what: "executeOrder — position #6 opened at the Pyth price 65,461.91", from: "keeper", tx: "0x71ee1d8cfa05e6a78ac09da78fe0ae6cf18cfc9f08e1ef1ba75c4921c219f300" },
+      { what: "requestClose #6", from: "walletA", tx: "0xc48eef1edd01667d1bbea28ab9c76713670144b4b2ebe5c8d6b2231508461486" },
+      { what: "executeOrder — #6 closed at the Pyth price 65,463.66, win, paid with both fees", from: "keeper", tx: "0x66866e73df5ab99ae6972715f5916f4afdf4d047bb3a029c202ea7a211d52b30" },
+      { what: "requestOpen short 50 MUSD × 5", from: "walletA", tx: "0x5b3e3f9f2658474222233291182afd15815aadf51fcfd542b429e40f85bd0570" },
+      { what: "executeOrder — position #7 opened at the Pyth price 65,484.52", from: "keeper", tx: "0x595ecc00d26447d5266118e83a44b35b20281fde9228a2c9aa16993a483f29f9" },
+      { what: "requestClose #7", from: "walletA", tx: "0x8aef0a0bbf7edb90efba6f460f0c9ffe23a5f978d3590c1873041c67a442cf6d" },
+      { what: "executeOrder — #7 closed at the Pyth price 65,459.20, win, paid with both fees", from: "keeper", tx: "0x7c908dd381827d22f4e700f3d9f7cbea8b70e1d96fa4836d5b7016e2a84af653" },
+      { what: "requestOpen long 50 MUSD × 10", from: "walletA", tx: "0x56efb03738a9fa6f3605ca90d0bf33b3d9e4835b1fcdc07fa754fc3cb5497956" },
+      { what: "executeOrder — position #8 opened at the Pyth price 65,451.51", from: "keeper", tx: "0xb034d11b276149e7568b8491ec7d9aa91ee2d1a547e53cc1f30f0ab5fc8eb08d" },
+      { what: "requestClose #8", from: "walletA", tx: "0xbb97aa53bc8f3dcf561ebdf02a2e9a7ba9b91bbd5305775b9a5d144384124397" },
+      { what: "executeOrder — #8 closed at the Pyth price 65,457.93, win, paid with both fees", from: "keeper", tx: "0xedeab9257f8af0523a15f022e8ab5282e4b9336d17c7eefcd84f4de76794fdb8" },
+      { what: "requestOpen short 40 MUSD × 15", from: "walletA", tx: "0x05f38379369d5075941610d04ecaa4540dac249bf0315c63f4e1eb46f220247a" },
+      { what: "executeOrder — position #9 opened at the Pyth price 65,458.01", from: "keeper", tx: "0x9e037dc91b14fc4baa56cb3728c2daf7aee0f88386a209ab15f0c9d2fc2f7dc4" },
+      { what: "requestClose #9", from: "walletA", tx: "0x436a9a1257ecc9583b5777ab7b45d679c4e61c58b50752682169c43a9cff37d0" },
+      { what: "executeOrder — #9 closed at the Pyth price 65,446.96, win, paid with both fees", from: "keeper", tx: "0xde265c92f0a0f310ea31d591d8f36ff8ce4b2bcec0a18d4dca8ceb228f247461" },
+      { what: "requestOpen long 40 MUSD × 20", from: "walletA", tx: "0x91dc91f14f3a5e2bba46d0bcc00a013ca84623ac1d35bad6521546f1355aec6d" },
+      { what: "executeOrder — position #10 opened at the Pyth price 65,423.17", from: "keeper", tx: "0xb1e1364b17b607a4797da4ca904c7cdb65d24a48de3d1aa49b04c3c00cf33aa4" },
+      { what: "requestClose #10", from: "walletA", tx: "0x5dc13e2d3dbc9e607bb09d4ffc451b82cf27939ed3071507bcf5427ff878894c" },
+      { what: "executeOrder — #10 closed at the Pyth price 65,419.88, loss, MPAPER minted", from: "keeper", tx: "0x7296c55571daccc84948c9ec1d4148d7bf25a45b8c01ee70aafa64962bc37810" },
+      { what: "requestOpen short 40 MUSD × 25", from: "walletA", tx: "0xb5475d5e7ed039cca2ef1cdef262872baff158bd44cdaa6a114269e41a7aa7c9" },
+      { what: "executeOrder — position #11 opened at the Pyth price 65,378.20", from: "keeper", tx: "0x8a37ad55e9208a961fc78fef712b39148e36560f89c48b280d0eda008777ec5c" },
+      { what: "rebalance() — MUSD withdrawn from the Stability Pool (SpWithdrawn)", from: "keeper", tx: "0xc8fe3967ed807e43fa8f6e9f6e9ce01827f81ad7cff27c2874be96180ad78289" },
+      { what: "requestClose #11", from: "walletA", tx: "0x3f2e4ca3cc1b7996f7d6c3db51007b80e2c535a444974eec95688a5cac37937c" },
+      { what: "executeOrder — #11 closed at the Pyth price 65,400.04, loss, MPAPER minted", from: "keeper", tx: "0x6b8c9e5e63d6f0847440699644dcb3b7b13759307b3f29e016c02cbbc31cae53" },
+      { what: "requestOpen long 30 MUSD × 40", from: "walletA", tx: "0xfb53eb5a964f2cb4be594593623b35131f1bb577a2a605804e10814aeebc0767" },
+      { what: "executeOrder — position #12 opened at the Pyth price 65,400.35", from: "keeper", tx: "0x15c49ac1a72b3b86effc284056d2c161e046268eff2b170dfb2bc5c93104995c" },
+      { what: "requestClose #12", from: "walletA", tx: "0x63aec4c50db3277bb31121ef7561646df03cd500d99e8a024f5b4141d2c7f4ea" },
+      { what: "executeOrder — #12 closed at the Pyth price 65,400.82, win, nothing paid after the impact haircut", from: "keeper", tx: "0xbd4401888bd84b798c2587bcff7377182be8eedd080d874145617e7e2fd69324" },
+      { what: "requestOpen short 30 MUSD × 50", from: "walletA", tx: "0x8d4e21e7e7575242534103f346718374d4db90b1d5967be39d9732bb01eb4a3c" },
+      { what: "executeOrder — position #13 opened at the Pyth price 65,401.26", from: "keeper", tx: "0xd3066b94f48fa40e9fc77af8473e6cf639cead83ad5db2a2df8f9f35aaa7ec78" },
+      { what: "requestClose #13", from: "walletA", tx: "0x8eb23342d7d3e7a094b93c6dcfb7aa002ab76b184e26780b184f7be42639acea" },
+      { what: "executeOrder — #13 closed at the Pyth price 65,403.96, loss, MPAPER minted", from: "keeper", tx: "0x90f77bc01490e8a1503e1bd179982238c25a8765497eb6e3b10d74bce5bf92c1" },
+      { what: "requestOpen long 20 MUSD × 75", from: "walletA", tx: "0x34b3c55e4b0e1e5a166ab2d71a569cd4851de4383b195cb522f66fbde447a65c" },
+      { what: "executeOrder — position #14 opened at the Pyth price 65,424.00", from: "keeper", tx: "0xf67676210d77e1f22250331269674f6adafeb3efdc3e75bf341800efd9d34a6c" },
+      { what: "requestClose #14", from: "walletA", tx: "0x4204da24ad1c05ba105ead881f4dd4f95124b0acd4c50e1c813f1fbd9bd0fbe5" },
+      { what: "executeOrder — #14 closed at the Pyth price 65,423.96, loss, MPAPER minted", from: "keeper", tx: "0xbd6f87cda9d0f27a5bc0a3ddf5d9f54b9a13c951ffadc927f4090f7fd810bb4a" },
+      { what: "requestOpen short 20 MUSD × 100", from: "walletA", tx: "0x79250093501fa299ecd720873c30e2f535f9b48c1cbd5c758875a8e5cdee1fb8" },
+      { what: "executeOrder — position #15 opened at the Pyth price 65,406.78", from: "keeper", tx: "0xbc2bd520d15b400f66a49e8be113c5aeffa35efdec8eb401c7ae8d690cd85de1" },
+      { what: "requestClose #15", from: "walletA", tx: "0x61a93bd6831f7fe513caab1d575c1a225d21071f17d711b68e805624d1c27084" },
+      { what: "executeOrder — #15 closed at the Pyth price 65,410.62, loss, MPAPER minted", from: "keeper", tx: "0x9ba28de2a8554e1a404b7989bac87642ae48cbc6c7e64e45723460177a3d6b3a" },
     ],
   },
 ];

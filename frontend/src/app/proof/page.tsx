@@ -123,7 +123,7 @@ export default function ProofPage() {
               <li><b>UI run used a scripted injected EVM wallet.</b> The 2026-11-10 run clicked through the live app with a team test wallet, not with Mezo Passport&apos;s BTC (Safe) accounts, which are still untested.</li>
               <li><b>One permissioned keeper.</b> A single team-run key fills orders; unfilled orders become refundable after 5 minutes.</li>
               <li><b>Stability Pool floor lowered to 0.25 MUSD</b> for the testnet demo (op C). It must go back to 50 MUSD before real use.</li>
-              <li><b>Oracle switched on 2026-11-15.</b> Every trade and liquidation recorded below was settled at the time on the keeper-signed price. Since 2026-11-15 settlement uses Pyth BTC/USD updates, verified on-chain by Mezo&apos;s Pyth contract; the single keeper chooses when to deliver an update but cannot make up a price. Both are bounded to ±1% of Mezo&apos;s MUSD PriceFeed.</li>
+              <li><b>Oracle switched on 2026-11-15.</b> The trades recorded below up to 2026-11-10 were settled on the keeper-signed price; the 10 round trips on 2026-11-15 were opened and closed at Pyth prices. Since 2026-11-15 settlement uses Pyth BTC/USD updates, verified on-chain by Mezo&apos;s Pyth contract; the single keeper chooses when to deliver an update but cannot make up a price. Both are bounded to ±1% of Mezo&apos;s MUSD PriceFeed.</li>
             </ul>
           </section>
 

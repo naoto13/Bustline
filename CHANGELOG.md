@@ -40,6 +40,10 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
   details in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-timelock-operations)). Trades before the switch were
   settled on the keeper-signed oracle, which stays deployed as the rollback target. `deployments/testnet-v3.1.json`
   now has `"Oracle"` = PythPullOracle and `"oracleMode": "pyth"`.
+- First Pyth-settled trades (2026-11-15): 10 round trips from test wallet A (positions #6–#15, long and short,
+  2x to 100x), each opened and closed by the keeper with a Pyth Hermes BTC/USD update. Four wins paid at once with both
+  fees, one win with nothing left after the impact haircut, five losses that minted MPAPER; nothing queued, no
+  liquidation. Txs in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-pyth-settled-round-trips-2026-11-15) and on `/proof`.
 
 Still to do before the Wave 2 deadline (2026-11-15):
 
