@@ -1,3 +1,5 @@
 node_modules/
 .wrangler/
 .dev.vars
+# editor swap files can hold pasted secrets
+*.swp

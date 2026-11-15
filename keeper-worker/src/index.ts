@@ -2,12 +2,16 @@
  * Bustline testnet keeper as a Cloudflare Worker.
  *
  * Port of keeper/perp_keeper (monitor.Keeper.poll_once + SignedSource + TestnetExecutor/EnvSigner), Telegram skipped.
- * Cron fires every minute; each invocation runs ticks every ~15s for ~45s and pushes a fresh signed price at least
- * once per run. Mezo TESTNET only (chainId 31611, rpc.test.mezo.org). Key = secret KEEPER_PRIVATE_KEY (never logged).
+ * Cron fires every minute; each invocation runs ticks every ~15s for ~45s and pushes a fresh price at least once per
+ * run. The price source follows the exchange's on-chain `oracle()` every tick: SignedPriceOracle (ORACLE_ADDRESS) →
+ * keeper-signed report; PythPullOracle (PYTH_ORACLE_ADDRESS) → Pyth Hermes update (hermes.ts); anything else → no price
+ * push. So switching / rolling back the oracle on-chain needs no redeploy. Mezo TESTNET only (chainId 31611,
+ * rpc.test.mezo.org). Keys = secrets KEEPER_PRIVATE_KEY / PRICE_SIGNER_PRIVATE_KEY / PYTH_API_KEY (never logged).
  */
 import { encodeAbiParameters, keccak256, type Hex } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { PAUSED_SELECTOR, parsePaused, pauseGate } from "./pause";
+import { PAUSED_SELECTOR, parsePaused, pauseGate } from "./pause.ts";
+import { MAX_UPDATE_FEE_WEI, ORACLE_SELECTOR, PYTH_BTC_USD, UPDATE_FEE_SELECTOR, hermesUrl, parseHermes, pickSource, wordToAddress } from "./hermes.ts";
 
 export interface Env {
   KEEPER_PRIVATE_KEY: string;
@@ -21,8 +25,13 @@ export interface Env {
   HEARTBEAT_SECONDS?: string;
   /** HouseExchange address (required; wrangler.toml [vars], currently v3.1 = deployments/testnet-v3.1.json). */
   EXCHANGE_ADDRESS?: string;
-  /** SignedPriceOracle address — part of the signed-report digest, so it must match the exchange's oracle. */
+  /** SignedPriceOracle address (required) — part of the signed-report digest. Used while the exchange's on-chain
+   *  `oracle()` equals it; the active oracle is read on-chain every tick. */
   ORACLE_ADDRESS?: string;
+  /** PythPullOracle address (wrangler.toml [vars], optional): used while the exchange's `oracle()` equals it. Unset = no Pyth mode. */
+  PYTH_ORACLE_ADDRESS?: string;
+  /** Pyth Hermes API key (secret, sent as a Bearer token, never logged). Required only in Pyth mode. */
+  PYTH_API_KEY?: string;
   /** "1" = HouseExchange v3: also call rebalance() / forwardBtc() (v2 has neither: leave unset for v2). */
   SP_OPS?: string;
   /** Minimum seconds between Stability Pool checks (default = HEARTBEAT_SECONDS). */
@@ -36,6 +45,7 @@ const CHAIN_ID = 31611;
 // Set from env at the start of every invocation (configure). env is fixed per deployment, so module scope is safe.
 let EXCHANGE: Hex = "0x0000000000000000000000000000000000000000";
 let ORACLE: Hex = "0x0000000000000000000000000000000000000000";
+let PYTH_ORACLE: Hex | undefined;
 function addr(v: string | undefined, name: string): Hex {
   const a = (v ?? "").trim();
   if (!a) throw new Error(`${name} is not set (wrangler.toml [vars]); refusing to run`);
@@ -46,6 +56,7 @@ function addr(v: string | undefined, name: string): Hex {
 function configure(env: Env): void {
   EXCHANGE = addr(env.EXCHANGE_ADDRESS, "EXCHANGE_ADDRESS");
   ORACLE = addr(env.ORACLE_ADDRESS, "ORACLE_ADDRESS");
+  PYTH_ORACLE = env.PYTH_ORACLE_ADDRESS?.trim() ? addr(env.PYTH_ORACLE_ADDRESS, "PYTH_ORACLE_ADDRESS") : undefined; // unset = no Pyth mode
 }
 const HARVEST_BATCH = 32n;
 const SCAN_WINDOW = 500;
@@ -81,6 +92,7 @@ const SEL = {
   spWithdrawable: "0xaf5deacf",
   // v3.1 (emergency pause) — v3 has no paused(): the call reverts and is read as "not paused" (pause.ts)
   paused: PAUSED_SELECTOR,
+  oracle: ORACLE_SELECTOR,
 } as const;
 
 class RpcError extends Error {}
@@ -152,6 +164,8 @@ interface Snapshot {
   chainId: number;
   /** v3.1 `paused()`; false on v3 (no such function) */
   paused: boolean;
+  /** exchange's current `oracle()` (lowercase); zero address if the read failed */
+  oracle: string;
 }
 
 async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
@@ -166,6 +180,7 @@ async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
     ethCall(SEL.pendingOrderIds + u256(cursor, cursor + SCAN_WINDOW)), // contract clamps `to` to orderCount
     { method: "eth_chainId", params: [] },
     ethCall(SEL.paused), // same batch = no extra subrequest; never passed through ok() (reverts on v3)
+    ethCall(SEL.oracle), // same batch; not through ok(): a failed read becomes the zero address = unknown oracle
   ]);
   let price: bigint | null = null, upd = 0, err: string | null = null;
   if (r[0].error) err = r[0].error.message ?? "currentPrice reverted";
@@ -182,6 +197,7 @@ async function snapshot(rpc: Rpc, cursor: number): Promise<Snapshot> {
     pending: dynUintArray(ok(r[7])),
     chainId: Number(BigInt(ok(r[8]))),
     paused: parsePaused(r[9]),
+    oracle: r[10]?.error ? wordToAddress(null) : wordToAddress(r[10]?.result),
   };
 }
 
@@ -244,6 +260,26 @@ async function fetchBundle(rpc: Rpc, acct: PrivateKeyAccount, blockTs: number): 
   // t > block.timestamp + maxSkew (10 s) with FutureReport, so clamp to the latest block time + a 5 s margin.
   const t = Math.min(Math.floor(Date.now() / 1000), blockTs + PUBLISH_SKEW_MARGIN);
   return { price, publishTime: t, data: [await signReport(acct, price, t)], fee: 0n, source: "keeper-signed", spots };
+}
+
+// ------------------------------------------------------------------ prices (prices.HermesSource, for PythPullOracle)
+async function fetchHermes(rpc: Rpc, apiKey: string | undefined): Promise<PriceBundle> {
+  const key = apiKey?.trim();
+  if (!key) throw new PriceUnavailable("PYTH_API_KEY is not set (Pyth mode)");
+  if (!PYTH_ORACLE) throw new PriceUnavailable("PYTH_ORACLE_ADDRESS is not set (Pyth mode)");
+  rpc.count += 1;
+  const r = await fetch(hermesUrl(PYTH_BTC_USD), { headers: { ...UA, Authorization: "Bearer " + key }, redirect: "manual", signal: AbortSignal.timeout(8_000) });
+  if (!r.ok) throw new PriceUnavailable(`hermes HTTP ${r.status}`); // never the body / headers (key)
+  let json: unknown;
+  try { json = await r.json(); } catch { throw new PriceUnavailable("hermes: invalid JSON"); }
+  const h = parseHermes(json, PYTH_BTC_USD, Math.floor(Date.now() / 1000));
+  const cd = UPDATE_FEE_SELECTOR + encodeAbiParameters(bytesArr, [h.data]).slice(2);
+  const w = words(await rpc.call("eth_call", [{ to: PYTH_ORACLE, data: cd }, "latest"]));
+  if (!w.length) throw new PriceUnavailable("updateFee returned nothing");
+  const fee = w[0];
+  if (fee > MAX_UPDATE_FEE_WEI) throw new PriceUnavailable(`updateFee ${fee} wei > cap ${MAX_UPDATE_FEE_WEI}`);
+  // publishTime = Hermes publish_time (no block-time clamp: that is only for SignedPriceOracle.maxSkew)
+  return { price: h.price, publishTime: h.publishTime, data: h.data, fee, source: "pyth-hermes", spots: {} };
 }
 
 // ------------------------------------------------------------------ executor (chain.TestnetExecutor + signer.EnvSigner)
@@ -311,12 +347,14 @@ interface TickOut {
   sp?: string[];
   /** v3.1: exchange paused this tick (fills / liquidations skipped). Not an error: it must not trigger KV writes. */
   paused?: boolean;
+  /** price source picked from the exchange's on-chain oracle(); null = unknown oracle (no price push) */
+  oracle_mode?: "signed" | "pyth" | null;
   pushed: boolean; source: string | null; price: string | null; errors: string[]; snapshot?: Record<string, unknown>;
 }
 const fmt = (w: bigint | null) => (w === null ? null : (Number(w) / 1e18).toFixed(2));
 
 /** `signer` signs price reports (SignedPriceOracle.signer); transactions are sent by `ex` (the keeper account). */
-async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunState): Promise<TickOut> {
+async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunState, pythKey: string | undefined): Promise<TickOut> {
   const now = Date.now() / 1000;
   const out: TickOut = { at: new Date().toISOString(), filled: [], waiting: [], liquidated: [], harvested: false, at_risk: [], pushed: false, source: null, price: null, errors: [] };
   const s = await snapshot(rpc, st.cursor);
@@ -324,7 +362,7 @@ async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunSt
   out.snapshot = {
     block_ts: s.blockTs, onchain_price: fmt(s.price ?? s.lastPrice), price_age_s: Math.max(0, s.blockTs - (s.price !== null ? s.priceUpdatedAt : s.lastTime)),
     settleable: s.price !== null, house_cash: fmt(s.houseCash), queued: fmt(s.queueTotal), open: s.openIds.map(String), orders: s.orderCount,
-    paused: s.paused,
+    paused: s.paused, oracle: s.oracle,
   };
   // v3.1 pause: skip fills + liquidations (they revert EnforcedPause), hold the scan cursor, log only on a change
   const gate = pauseGate(s.paused, st.paused);
@@ -336,8 +374,13 @@ async function tick(rpc: Rpc, ex: Executor, signer: PrivateKeyAccount, st: RunSt
   const hbDue = !st.pushedThisRun || (st.heartbeat > 0 && now - st.lastPush >= st.heartbeat);
 
   let bundle: PriceBundle | null = null;
-  if ((!gate.skipTrading && (pending.length || s.openIds.length)) || hbDue) {
-    try { bundle = await fetchBundle(rpc, signer, s.blockTs); out.source = bundle.source; }
+  const mode = pickSource(s.oracle, ORACLE, PYTH_ORACLE);
+  out.oracle_mode = mode;
+  // unknown oracle: no bundle (no fetch, no heartbeat push); fills / liquidations fall back to the on-chain price with
+  // empty update data, exactly as when the price source is down
+  if (mode === null) out.errors.push(`unknown oracle ${s.oracle} — not pushing prices`);
+  else if ((!gate.skipTrading && (pending.length || s.openIds.length)) || hbDue) {
+    try { bundle = mode === "signed" ? await fetchBundle(rpc, signer, s.blockTs) : await fetchHermes(rpc, pythKey); out.source = bundle.source; }
     catch (e) { out.errors.push(`price source unavailable — using on-chain price: ${String(e).slice(0, 200)}`); }
   }
   let price: bigint, ts: number;
@@ -470,14 +513,17 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
     if (Date.now() < slot) await sleep(slot - Date.now());
     if (Date.now() >= stopAt || rpc.count >= SUBREQUEST_BUDGET - 6) break;
     let t: TickOut;
-    try { t = await tick(rpc, ex, signer, st); }
+    try { t = await tick(rpc, ex, signer, st, env.PYTH_API_KEY); }
     catch (e) { t = { at: new Date().toISOString(), filled: [], waiting: [], liquidated: [], harvested: false, at_risk: [], pushed: false, source: null, price: null, errors: [`tick failed: ${String(e).slice(0, 240)}`] }; }
     ticks.push(t);
     const { snapshot: snap, ...rest } = t;
     console.log(`[keeper] tick ${i} ${JSON.stringify(snap ?? {})} | ${JSON.stringify(rest)}`);
   }
+  const lastSnap = [...ticks].reverse().find((t) => t.snapshot);
   const summary = {
-    keeper: acct.address, price_signer: signer.address, exchange: EXCHANGE, oracle: ORACLE, sp_ops: st.spOps, paused: st.paused, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
+    keeper: acct.address, price_signer: signer.address, exchange: EXCHANGE, signed_oracle: ORACLE, pyth_oracle: PYTH_ORACLE ?? null,
+    // the oracle the exchange actually used (last tick's on-chain oracle()) and the price source picked for it
+    oracle: lastSnap?.snapshot?.oracle ?? null, oracle_mode: lastSnap ? lastSnap.oracle_mode : null, sp_ops: st.spOps, paused: st.paused, scheduled: new Date(scheduledTime || start).toISOString(), ran_ms: Date.now() - start,
     subrequests: rpc.count, cursor: st.cursor, last_push: st.lastPush ? new Date(st.lastPush * 1000).toISOString() : null,
     txs: ex.txs, ticks,
   };
@@ -514,6 +560,8 @@ async function health(env: Env): Promise<Response> {
     live.order_count = s.orderCount;
     live.pending_orders = s.pending.map(String);
     live.paused = s.paused;
+    live.oracle = s.oracle;
+    live.oracle_mode = pickSource(s.oracle, ORACLE, PYTH_ORACLE);
   } catch (e) { live.error = String(e).slice(0, 200); }
   const last = env.KEEPER_STATE ? ((await env.KEEPER_STATE.get("state", "json")) as any)?.last ?? null : null;
   return Response.json({ worker: "bustline-keeper", network: "mezo-testnet", live, last_run: last }, { headers: { "Cache-Control": "no-store" } });
