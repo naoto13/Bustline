@@ -118,7 +118,7 @@ Signature / calldata / raw-tx encoding is checked byte-for-byte against the Pyth
 cd keeper-worker
 pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageManager pins pnpm@10.33.2)
 pnpm check                                              # tsc --noEmit
-pnpm test                                               # 34 tests: 22 unit + 12 offline integration (Node 22.7+)
+pnpm test                                               # 50 tests: 31 unit + 19 offline integration (Node 22.7+)
 w() { pnpm dlx --package node@22 --package wrangler@latest wrangler "$@"; }   # wrangler needs Node >= 22
 w deploy
 printenv KEEPER_KEY | w secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
@@ -138,10 +138,15 @@ Workers Free limits:
   Pyth mode (Hermes + `updateFee`).
 - **CPU 10 ms per invocation.** Network waits don't count; secp256k1 signing is the main cost. Watch `cpuTime` in
   Workers Observability; if runs get killed for CPU, move to Workers Paid.
-- **KV 1,000 writes/day.** State and the `/health` run summary share one key, written every 10 minutes or whenever
-  the order cursor moved or a fill, liquidation, harvest or error happened (~144 writes/day baseline), so the summary
-  can be up to ~10 min old; the `live` block is always fresh. Known limit: an error forces a write, so if an unknown
-  oracle or a missing `PYTH_API_KEY` persists, the Worker writes once a minute (1,440/day) and exceeds the Free quota.
+- **KV 1,000 writes/day.** State and the `/health` run summary share one key, written every 10 minutes (~144
+  writes/day baseline) and whenever a fill, liquidation, harvest, Stability Pool operation, order-cursor move or pause
+  change happened, so the summary can be up to ~10 min old; the `live` block is always fresh. A run with only errors
+  writes only when the kind of error changed since the last write (appeared, changed or cleared) and the last write is
+  at least 300 s old (`keeper-worker/src/kvgate.ts`; the state carries `errSig` / `wroteAt`, older state is read as
+  before); while the same error persists, the 10-minute write records it. A failed `put` is logged and does not fail
+  the run. Measured with a fake clock over 1,440 runs (one day): 145 writes/day when the same error persists, 289/day
+  in the worst case (the kind of error changes every minute). Before the fix (2026-11-15) every run with an error wrote,
+  up to 1,440/day.
 - Cron trigger changes can take a few minutes to start firing after the first deploy.
 
 ### Python keeper (v2 only, not a fallback for v3.1)
@@ -191,6 +196,11 @@ in each `pnpm-workspace.yaml`):
   (otherwise pnpm pulls react-native and other unused peers of `@mezo-org/passport` into the tree); the wagmi pins that
   were npm `overrides` are now pnpm `overrides`; dependency build scripts stay blocked (`ignoredBuiltDependencies`,
   all have pure-JS fallbacks or are unused).
+
+Layout regression check (headless Chrome via playwright-core, against an app that is already running, default
+`http://127.0.0.1:3100/`): `CHROME_PATH=<chrome binary> pnpm e2e:layout` (`frontend/e2e/layout.cjs`; widths 1440, 1280,
+1046, 1000 and 430 plus three window resizes, checking for overlaps and clipped header stats; `APP_URL` overrides the
+URL).
 
 Read-only preview: `?viewAs=0x…` shows any address's trove, balances and the deposit routes without a wallet (every
 write is refused). Used for screenshots of the "has a trove" / "no trove" states.

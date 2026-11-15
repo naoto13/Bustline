@@ -33,8 +33,7 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 - Tests: 34 keeper Worker tests (22 unit + 12 offline integration tests that run the scheduled handler and `/health`
   with stubbed `fetch` and decode the transactions it would send), and the fork suite `test/fork/OracleSwitchFork.t.sol`
   (10 tests, 5 of them need a live Hermes update in `PYTH_UPDATE_HEX`) that runs the exact timelock calldata against
-  the deployed v3.1 contracts, then a push, a fill and a liquidation with a Pyth update. Totals: 103 unit/fuzz,
-  56 fork, 34 keeper Worker, 23 Python keeper.
+  the deployed v3.1 contracts, then a push, a fill and a liquidation with a Pyth update.
 - Settlement oracle switched from the keeper-signed oracle to the Pyth pull oracle on 2026-11-15 (timelock op D,
   `HouseExchange v3.1.setOracle(PythPullOracle v3.1)`, executed 19:57 JST, tx `0x7edaae6d9d512356dd1e6d11a633b92d11d671831513316ed41ebb51545da732`;
   details in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-timelock-operations)). Trades before the switch were
@@ -44,6 +43,23 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
   2x to 100x), each opened and closed by the keeper with a Pyth Hermes BTC/USD update. Four wins paid at once with both
   fees, one win with nothing left after the impact haircut, five losses that minted MPAPER; nothing queued, no
   liquidation. Txs in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-pyth-settled-round-trips-2026-11-15) and on `/proof`.
+- Layout regression test `pnpm e2e:layout` (`frontend/e2e/layout.cjs`, headless Chrome via playwright-core against a
+  running app): widths 1440, 1280, 1046, 1000 and 430 plus three window resizes, checking for overlaps and clipped
+  header stats.
+
+### Fixed
+
+- Keeper Worker KV writes (2026-11-15): a run with only errors used to write state every minute, so a lasting error
+  (unknown oracle, missing `PYTH_API_KEY`, Hermes outage) could reach 1,440 writes/day, above the Workers Free 1,000/day,
+  and a failed `put` then lost the cursor. Now fills, liquidations, harvest, Stability Pool operations, cursor moves and
+  pause changes still write every time; error-only runs write only when the kind of error changed and the last write is
+  at least 300 s old, and a failed `put` is logged without failing the run. Measured over a simulated day: 145
+  writes/day with a lasting error, 289 in the worst case. Keeper Worker tests: 50 (31 unit incl. 9 for the write
+  rule, 19 integration incl. 7 multi-run). Totals: 103 unit/fuzz, 56 fork, 50 keeper Worker, 23 Python keeper.
+- Trade screen layout: at window widths of 901–1090px the bottom tabs (Positions / Pending / Activity / Status)
+  overlapped the chart's time axis and the Open Positions bar, because the fixed-height chart SVG stretched the grid
+  row past the trading area; the row height now follows the trading area. The header stats now wrap, so ORACLE,
+  PUBLISHED and LIVE/STALE stay visible below ~1260px (on phones the stats move to a full-width row under the price).
 
 Still to do before the Wave 2 deadline (2026-11-15):
 

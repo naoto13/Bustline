@@ -284,3 +284,83 @@ async function recoverTxSender(raw) {
   const { recoverTransactionAddress } = await import("viem");
   return recoverTransactionAddress({ serializedTransaction: raw });
 }
+
+// ------------------------------------------------------------------ KV write gating over consecutive cron runs
+const M0 = Math.floor(T / 600) * 600 + 60; // a minute with UTC minute ≡ 1 (mod 10): periodic writes at k = 9, 19, 29, ...
+const UNKNOWN = { oracle: "0x" + "12".repeat(20) };
+const STALE_PYTH = { oracle: PYTH, fee: 1n }; // clock is far past the fixture → Hermes "stale" → price source unavailable
+/** Run `scheduled` once per minute (k = 0..n-1) with a shared KV; returns the indices of the runs that wrote. */
+async function runMinutes(n, scAt, { store = kv(), envPatch = {}, putThrows = false } = {}) {
+  const written = [], logs = [], raw = [];
+  const env = { ...baseEnv(), ...envPatch, KEEPER_STATE: store };
+  const put = store.put;
+  for (let k = 0; k < n; k++) {
+    store.put = async (key, v) => { if (putThrows) throw new Error("KV put() limit exceeded for the day."); written.push(k); return put(key, v); };
+    useClock((M0 + 60 * k) * 1000);
+    console.log = (...a) => logs.push(a.join(" "));
+    const rec = stub(scAt(k));
+    let p;
+    await worker.scheduled({ scheduledTime: clock }, env, { waitUntil: (x) => { p = x; } });
+    await p;
+    console.log = real.log;
+    assert.deepEqual(rec.unexpected, [], `unexpected requests at k=${k}`);
+    raw.push(...rec.raw);
+  }
+  const all = [...store.store.values()].join("") + logs.join("\n");
+  assert.ok(!all.includes(API_KEY), "API key leaked");
+  return { written, logs, raw, state: store.store.has("state") ? JSON.parse(store.store.get("state")) : null };
+}
+
+test("KV: unknown oracle for 30 minutes writes once + the periodic writes, not every minute", async () => {
+  const r = await runMinutes(30, () => UNKNOWN);
+  assert.deepEqual(r.written, [0, 9, 19, 29]);
+  assert.equal(r.state.errSig, "unknown oracle");
+  assert.equal(r.state.wroteAt, M0 + 29 * 60);
+});
+
+test("KV: error appears and clears are each saved; a kind change < 300 s after a write is not", async () => {
+  // k0-5 ok (signed), k6 unknown oracle, k7-15 stale Hermes (other kind), k16-17 ok again
+  const sc = (k) => (k <= 5 || k >= 16 ? { oracle: SIGNED } : k === 6 ? UNKNOWN : STALE_PYTH);
+  const r = await runMinutes(18, sc);
+  // k0: first state; k6: errors appeared (360 s after k0); k7/k8: kind changed but < 300 s after k6 → no write;
+  // k9: periodic (saves the new kind); k16: errors cleared (420 s after k9)
+  assert.deepEqual(r.written, [0, 6, 9, 16]);
+  assert.equal(r.state.errSig, "");
+  assert.equal(r.raw.length, 6 + 2); // signed heartbeat push on every ok run, unchanged
+});
+
+test("KV: the stored kind after the periodic write is the new one", async () => {
+  const r = await runMinutes(10, (k) => (k <= 5 ? { oracle: SIGNED } : k === 6 ? UNKNOWN : STALE_PYTH));
+  assert.deepEqual(r.written, [0, 6, 9]);
+  assert.equal(r.state.errSig, "price source unavailable");
+});
+
+test("KV: a run with a fill always writes, whatever the errors or the interval", async () => {
+  const r = await runMinutes(5, () => ({ ...UNKNOWN, pending: [{ oid: 7, createdAt: T - 100 }] }));
+  assert.deepEqual(r.written, [0, 1, 2, 3, 4]);
+  assert.equal(r.raw.length, 5);
+});
+
+test("KV: old state format (no errSig / wroteAt) does not crash and the first error run writes", async () => {
+  const store = kv();
+  store.store.set("state", JSON.stringify({ cursor: 0, lastPush: 0, lastSp: 0, paused: false, last: { old: true } }));
+  const r = await runMinutes(3, () => UNKNOWN, { store });
+  assert.deepEqual(r.written, [0]);
+  assert.equal(r.state.errSig, "unknown oracle");
+  assert.equal(typeof r.state.wroteAt, "number");
+});
+
+test("KV: a throwing put does not fail the run; txs are still sent and the failure is logged", async () => {
+  const r = await runMinutes(2, () => ({ oracle: SIGNED }), { putThrows: true });
+  assert.equal(r.raw.length, 2); // heartbeat push each run
+  assert.deepEqual(r.written, []);
+  assert.ok(r.logs.some((l) => l.includes("KV state write failed") && l.includes("limit exceeded")));
+});
+
+test("KV: one day of runs stays far below the 1000/day free tier", async () => {
+  const steady = await runMinutes(1440, () => UNKNOWN);
+  const flip = await runMinutes(1440, (k) => (k % 2 ? UNKNOWN : STALE_PYTH)); // worst case: kind changes every run
+  real.log(`# KV writes/day: steady error ${steady.written.length}, flipping errors ${flip.written.length}`);
+  assert.ok(steady.written.length < 200, String(steady.written.length));
+  assert.ok(flip.written.length < 500, String(flip.written.length));
+});

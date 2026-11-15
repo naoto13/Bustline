@@ -19,7 +19,7 @@
 | Integrates MUSD | Margin, house cash, payout queue and staker revenue are all MUSD (real testnet MUSD from a Trove) |
 | Working deployment | v3.1 contracts live on **Mezo testnet** behind a timelock (deployed and verified 2026-11-07), keeper Worker running on v3.1; frontend at https://bustline.planz.workers.dev (reads v3.1) |
 | Mezo-native stack | Mezo Passport for wallets; settlement prices come from Mezo's Pyth pull oracle (switched from keeper-signed prices on 2026-11-15 through the timelock) and must stay within ±1% of Mezo's MUSD PriceFeed (sourced from Skip Connect) |
-| Evidence it works | A real 100x liquidation on testnet (v2, Wave 1) driven by the live keeper-signed price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 103 Foundry unit/fuzz + 56 fork tests (against real Mezo testnet state) + 34 keeper Worker tests + 23 Python keeper tests |
+| Evidence it works | A real 100x liquidation on testnet (v2, Wave 1) driven by the live keeper-signed price feed ([proof](docs/DEPLOYMENTS.md#on-chain-proof)); 103 Foundry unit/fuzz + 56 fork tests (against real Mezo testnet state) + 50 keeper Worker tests + 23 Python keeper tests |
 
 ## Try it in 3 minutes
 
@@ -206,7 +206,7 @@ MEZO_FORK_URL=https://rpc.test.mezo.org forge test --match-path 'test/fork/*'   
 ./scripts/dev-fork.sh                                       # anvil fork of Mezo testnet + deploy (unlocked anvil accounts, no keys)
 ./scripts/demo.sh                                           # crash/volatility demo → docs/demo/crash-demo-output.txt
 (cd keeper && python3 -m unittest discover -s tests)        # 23 Python keeper tests
-(cd keeper-worker && pnpm install --frozen-lockfile && pnpm test)   # 34 keeper Worker tests (22 unit + 12 offline integration; Node 22.7+)
+(cd keeper-worker && pnpm install --frozen-lockfile && pnpm test)   # 50 keeper Worker tests (31 unit + 19 offline integration; Node 22.7+)
 (cd keeper && python3 -m perp_keeper --execute-local --simulate-oracle)   # keeper loop on the local fork
 (cd frontend && pnpm install --frozen-lockfile && pnpm build && pnpm start)  # http://localhost:3100
 ```
@@ -248,9 +248,7 @@ Testnet deployment and keeper operation: [`docs/OPERATIONS.md`](docs/OPERATIONS.
 - The v3.1 testnet market's settlement oracle is the Pyth pull oracle since 2026-11-15 (timelock op D); trades before
   that were settled on the keeper-signed oracle. The fork rehearsal covers price pushes, fills and a liquidation with a Pyth
   update; on testnet, 10 round trips (2026-11-15) were opened and closed with Pyth updates. A liquidation at a Pyth
-  price has only been run on the fork so far. If the Worker sees an unknown oracle or has no
-  `PYTH_API_KEY` for a long time, it records an error every minute, which exceeds the Workers Free KV limit
-  (1,000 writes/day).
+  price has only been run on the fork so far.
 - The keeper set is permissioned (owner whitelist) so traders can't time their own fills; expired orders are refundable.
 - Skip on Mezo testnet returns `answeredInRound = 0`, so the Skip adapter relies on `updatedAt` freshness only.
 - Anvil can't execute Mezo's Skip precompile, so local/fork runs use `MockOracle`; MUSD is the real bytecode.
@@ -281,7 +279,7 @@ Per-wave details and tags: [CHANGELOG.md](CHANGELOG.md).
 | Wave | Dates | Shipped |
 |---|---|---|
 | Wave 1 | Oct 16–26, 2026 | Core exchange (2-step fills, hard-bust liquidation, FIFO payout queue, impact haircut), MPAPER + staking, Pyth / signed / Skip oracles, Python keeper and its Cloudflare Worker port, Next.js + Mezo Passport frontend, testnet deployment and a live liquidation |
-| Wave 2 | Nov 2–15, 2026 | **v3.1 live on testnet (2026-11-07)**, after v3 (2026-11-06, retired without trades). Done: MUSD PriceFeed price bound, HouseExchange with Stability Pool deposits and BTC rewards to MPAPER stakers, TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), guardian emergency pause (unpause only via the timelock), 1% protocol fee to a treasury, fixes from an independent review, keeper Worker and production frontend on v3.1, all six v3.1 contracts verified, "Start with BTC" / "From my trove" funding routes, pnpm migration; 103 unit/fuzz + 56 fork + 34 keeper Worker + 23 Python keeper tests. Stability Pool enabled on v3.1 through the timelock (2026-11-07). First v3.1 trades from two scripted test wallets (2026-11-07): all three funding routes, wins paid with the protocol fee and the staker fee ([txs](docs/DEPLOYMENTS.md#v31-test-wallet-trades-2026-11-07)). First Stability Pool deposit after lowering the floor through the timelock (2026-11-10). Settlement oracle switched from keeper-signed to Pyth pull through the timelock (op D, 2026-11-15); the keeper Worker follows the on-chain oracle. First Pyth-settled trades: 10 round trips from test wallet A, opened and closed at Pyth prices (2026-11-15, [txs](docs/DEPLOYMENTS.md#v31-pyth-settled-round-trips-2026-11-15)). Remaining: trades by outside users |
+| Wave 2 | Nov 2–15, 2026 | **v3.1 live on testnet (2026-11-07)**, after v3 (2026-11-06, retired without trades). Done: MUSD PriceFeed price bound, HouseExchange with Stability Pool deposits and BTC rewards to MPAPER stakers, TimelockController + separate owner / keeper / price-signer keys, a new RebateToken (v2 frozen after its key was lost; MPAPER balances not carried over), guardian emergency pause (unpause only via the timelock), 1% protocol fee to a treasury, fixes from an independent review, keeper Worker and production frontend on v3.1, all six v3.1 contracts verified, "Start with BTC" / "From my trove" funding routes, pnpm migration; 103 unit/fuzz + 56 fork + 50 keeper Worker + 23 Python keeper tests. Stability Pool enabled on v3.1 through the timelock (2026-11-07). First v3.1 trades from two scripted test wallets (2026-11-07): all three funding routes, wins paid with the protocol fee and the staker fee ([txs](docs/DEPLOYMENTS.md#v31-test-wallet-trades-2026-11-07)). First Stability Pool deposit after lowering the floor through the timelock (2026-11-10). Settlement oracle switched from keeper-signed to Pyth pull through the timelock (op D, 2026-11-15); the keeper Worker follows the on-chain oracle. First Pyth-settled trades: 10 round trips from test wallet A, opened and closed at Pyth prices (2026-11-15, [txs](docs/DEPLOYMENTS.md#v31-pyth-settled-round-trips-2026-11-15)). Remaining: trades by outside users |
 
 ## Team
 

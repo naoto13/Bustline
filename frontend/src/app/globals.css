@@ -43,7 +43,14 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .asset { flex: none; white-space: nowrap; display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 3px; padding: 3px 8px; background: var(--panel); }
 .asset .sym { font-weight: 700; font-size: 12px; }
 .asset .big { font-size: 14px; font-weight: 500; }
-.chips { min-width: 0; overflow: hidden; flex-wrap: nowrap; white-space: nowrap; display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+/* header stats wrap onto extra lines instead of being cut off (PUBLISHED and LIVE/STALE must stay visible). Dividers
+   sit on each item's left and bottom edge, pulled 1px outward: the ones that land on the container edge (line starts,
+   last line) are clipped by overflow: hidden, so every line keeps the same dividers and the outer border stays single.
+   Pulling left/down (not right) keeps scrollWidth equal to the visible width. */
+.chips { min-width: 0; overflow: hidden; flex-wrap: wrap; white-space: nowrap; display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.chips > * { margin: 0 0 -1px -1px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.chips > .stat { border-right: 0; flex-grow: 1; } /* wrapped lines fill the width so every divider runs edge to edge */
+.chips > .live { margin-left: auto; } /* the freshness badge stays at the right end, also when it wraps onto a line of its own */
 .stat { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-right: 1px solid var(--line); font-size: 11px; }
 .stat .k { font-size: 8.5px; letter-spacing: .1em; font-weight: 600; }
 .live { display: flex; align-items: center; padding: 0 8px; font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--green); background: var(--greenbg); }
@@ -136,6 +143,12 @@ input[type=number]::-webkit-inner-spin-button { opacity: .4; }
 .exposure { height: 8px; background: var(--red); border-radius: 2px; overflow: hidden; margin-top: 8px; }
 .exposure .pos-bg { height: 100%; background: var(--green); }
 .foot { margin-top: auto; border-top: 1px solid var(--line); padding: 6px 12px; font-size: 9px; color: var(--muted); }
+/* two-column trade view: the row height comes from .trade, not from the chart content. Without this the chart SVG
+   (sized in px by PriceChart's ResizeObserver) props the row open after a shrink and .tleft runs under the bottom tabs. */
+@media (min-width: 901px) {
+  .trade { grid-template-rows: minmax(0, 1fr); }
+  .tleft, .ordercol { min-height: 0; }
+}
 @media (max-width: 900px) {
   .trade { grid-template-columns: 1fr; height: auto; }
   /* trade chart: 360px plot + the toolbar/legend strip (see the container query below); .chartwrap.fixed keeps 300px */
@@ -151,6 +164,11 @@ input[type=number]::-webkit-inner-spin-button { opacity: .4; }
   .gran { position: static; order: 1; justify-content: flex-end; flex-wrap: wrap; padding: 6px 10px 0; }
   .legend { position: static; order: 2; flex-wrap: wrap; gap: 4px 12px; padding: 6px 10px 2px; }
   .legend span { white-space: nowrap; }
+}
+/* narrow chart column: the stats take their own full-width line under the BTC price instead of a tall narrow column */
+@container tleft (max-width: 600px) {
+  .statrow { flex-wrap: wrap; }
+  .chips { flex: 1 1 100%; }
 }
 .pgrid { align-content: start; }
 .chartwrap.fixed { height: 300px; flex: none; margin: 0 -10px -10px; border-top: 1px solid var(--line); }

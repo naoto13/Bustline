@@ -11,6 +11,7 @@
 import { encodeAbiParameters, keccak256, type Hex } from "viem";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { PAUSED_SELECTOR, parsePaused, pauseGate } from "./pause.ts";
+import { errorSignature, shouldWriteState } from "./kvgate.ts";
 import { MAX_UPDATE_FEE_WEI, ORACLE_SELECTOR, PYTH_BTC_USD, UPDATE_FEE_SELECTOR, hermesUrl, parseHermes, pickSource, wordToAddress } from "./hermes.ts";
 
 export interface Env {
@@ -530,12 +531,24 @@ async function run(env: Env, scheduledTime: number): Promise<Record<string, unkn
   console.log(`[keeper] run done ${JSON.stringify({ ticks: ticks.length, subrequests: rpc.count, txs: ex.txs })}`);
   if (env.KEEPER_STATE) {
     // Workers KV free tier = 1000 writes/day. One key per write; write only when the cursor moved, something other than
-    // a push happened, or every 10 minutes so /health stays reasonably fresh (~144 writes/day baseline).
-    const eventful = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.errors.length || t.sp?.length);
+    // a push happened, or every 10 minutes so /health stays reasonably fresh (~144 writes/day baseline). Errors alone
+    // write only when their kind changes (incl. appearing / clearing), at most once per 300 s (kvgate.ts): a steady
+    // error state (unknown oracle, Hermes down, ...) is left to the periodic write instead of writing every minute.
+    const activity = ticks.some((t) => t.filled.length || t.liquidated.length || t.harvested || t.sp?.length);
     // A pause is not "eventful" by itself (that would write every minute); only the transition is persisted.
     const pauseChanged = st.paused !== (prev?.paused === true);
-    if (eventful || pauseChanged || st.cursor !== (prev?.cursor ?? 0) || new Date(scheduledTime || start).getUTCMinutes() % 10 === 0) {
-      await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, lastSp: st.lastSp, paused: st.paused, last: summary }));
+    const errSig = errorSignature(ticks);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const gate = shouldWriteState({
+      activity, pauseChanged, cursorMoved: st.cursor !== (prev?.cursor ?? 0),
+      periodic: new Date(scheduledTime || start).getUTCMinutes() % 10 === 0,
+      errSig, prevErrSig: typeof prev?.errSig === "string" ? prev.errSig : undefined,
+      prevWroteAt: typeof prev?.wroteAt === "number" ? prev.wroteAt : undefined, nowSec,
+    });
+    if (gate.write) {
+      // a failed put (e.g. daily write limit) must not fail the run: txs are already sent; the next write catches up
+      try { await env.KEEPER_STATE.put("state", JSON.stringify({ cursor: st.cursor, lastPush: st.lastPush, lastSp: st.lastSp, paused: st.paused, errSig, wroteAt: nowSec, last: summary })); }
+      catch (e) { console.log(`[keeper] KV state write failed (${gate.reason}): ${String(e).slice(0, 160)}`); }
     }
   }
   return summary;
