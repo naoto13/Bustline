@@ -69,6 +69,8 @@ export default function Funding(props: {
   connect?: () => void; needConnect: boolean; onLines: (g: Guide[]) => void;
   /** v3.1 emergency pause: requestOpen reverts, so no route may start (the BTC route would borrow, then fail at step 3) */
   paused?: boolean;
+  /** route picked from the first-trade guide; `n` makes repeated picks of the same route count */
+  routeReq?: { route: Route; n: number };
 }) {
   const { d, who, readOnly, busy, side, lev, marginW, write, run } = props;
   const paused = !!props.paused;
@@ -102,6 +104,14 @@ export default function Funding(props: {
     setRoute((r) => (hasTrove && r === "btc" ? "trove" : !hasTrove && r === "trove" ? "btc" : r));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasTrove, !!t, flowActive, troveRoutes, proto.isFetched]);
+
+  // A pick from the first-trade guide. Ignored while a flow runs (its route is locked) and for routes not offered here.
+  useEffect(() => {
+    const q = props.routeReq;
+    if (!q || flowActive) return;
+    if (q.route === "musd" || (troveRoutes && (q.route === "trove") === hasTrove)) setRoute(q.route);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.routeReq?.n]);
 
   const borrow = wei(borrowIn);
   // default collateral: ICR 160% for the default borrow, until the user types a value

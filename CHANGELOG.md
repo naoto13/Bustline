@@ -20,6 +20,9 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
 - UI runs (2026-11-10): all three funding routes clicked through the live app with team test wallets connected as an
   injected EVM wallet (connect → fund → open → fill → close); wallet C was funded from the Mezo testnet faucet. Mezo
   Passport's BTC accounts are not tested yet.
+- "First trade" guide on the trade screen (Wave 1 build goal): six steps for newcomers to MUSD (connect, testnet BTC,
+  MUSD margin, a 20 MUSD × 5x preset with the bust price in words, the keeper fill, the close), each ticked off from
+  live reads of the address; dismissible, reopened with "Start here" in the header. Docs section "Your first trade".
 - Trove funding panel shows where the trove sits in Mezo's redemption order (lowest ICR is redeemed first); Docs
   section "Redemptions & recovery mode".
 

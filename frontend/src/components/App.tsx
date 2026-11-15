@@ -7,7 +7,8 @@ import { useAccount, useWriteContract } from "wagmi";
 import { parseUnits, formatUnits, maxUint256, isAddress, type Address, type Abi, type Hex } from "viem";
 import Providers from "./Providers";
 import PriceChart, { type Candle, type Guide } from "./PriceChart";
-import Funding, { type WriteOpts } from "./Funding";
+import Funding, { type Route, type WriteOpts } from "./Funding";
+import FirstTrade, { PRESET, type History } from "./FirstTrade";
 import { HouseExchangeAbi, RebateStakingAbi, RebateTokenAbi, MockERC20Abi, MockOracleAbi } from "@/abi";
 import { ANVIL_ACCOUNTS, MODE, RPC_URL, loadDeployment, type Deployment } from "@/lib/config";
 import { publicClient, localWallet } from "@/lib/chain";
@@ -62,6 +63,24 @@ async function readUser(d: Deployment, who: Address) {
   const pendingBtc = await readPendingBtc(d.RebateStaking, who); // RebateStaking v3+; undefined on older staking
   return { musd, allowance, rebate, staked, pending, pendingBtc, queued, rtAllow };
 }
+
+/** The address's position history (open and closed), for the first-trade guide. Positions keep their owner after closing. */
+async function readHistory(d: Deployment, who: Address): Promise<History> {
+  const x = d.HouseExchange;
+  const n = await r<bigint>(x, EX, "positionCount");
+  const from = n > 200n ? n - 200n : 0n;
+  const ids = Array.from({ length: Number(n - from) }, (_, i) => from + BigInt(i));
+  const ps = await Promise.all(ids.map((id) => r<Omit<Pos, "id">>(x, EX, "getPosition", [id])));
+  const mine = ps.filter((p) => p.owner.toLowerCase() === who.toLowerCase());
+  return { opened: mine.length, closed: mine.filter((p) => !p.open).length };
+}
+
+const FT_KEY = "bustline.firstTrade.dismissed";
+const scrollToPanel = (sel: string) => {
+  const el = document.querySelector(sel);
+  if (!el) return;
+  el.scrollIntoView({ block: "start" }); // instant: the target is the point, not the travel
+};
 
 /** Client-side mirror of ImpactLib.bustPrice (hard-bust trigger incl. 5 bps buffer). */
 function bustPrice(isLong: boolean, margin: bigint, size: bigint, entry: bigint, bufDiv: bigint) {
@@ -145,6 +164,15 @@ function Dashboard() {
   // `?simulatePaused=1` — display-only preview of the v3.1 paused state (banner + disabled open). Changes nothing on
   // chain and can only disable buttons; the banner says SIMULATED so it is never mistaken for the real state.
   const [simPaused, setSimPaused] = useState(false);
+  // First-trade guide: dismissal persists per browser; "Start here" in the header reopens and expands it.
+  const [ftDismissed, setFtDismissed] = useState(true);
+  const [ftExpand, setFtExpand] = useState(0);
+  const [routeReq, setRouteReq] = useState<{ route: Route; n: number } | undefined>(undefined);
+  useEffect(() => { try { setFtDismissed(window.localStorage.getItem(FT_KEY) === "1"); } catch { setFtDismissed(false); } }, []);
+  const setFtHidden = (v: boolean) => {
+    setFtDismissed(v);
+    try { if (v) window.localStorage.setItem(FT_KEY, "1"); else window.localStorage.removeItem(FT_KEY); } catch { /* storage unavailable */ }
+  };
 
   useEffect(() => { loadDeployment().then(setDep); }, []);
   useEffect(() => {
@@ -160,6 +188,7 @@ function Dashboard() {
   const who: Address | undefined = viewAs ?? (MODE === "local" ? acct : passportAddr);
   const m = useQuery({ queryKey: ["market", dep?.HouseExchange], queryFn: () => readMarket(dep!), enabled: !!dep, refetchInterval: 3000 });
   const u = useQuery({ queryKey: ["user", dep?.HouseExchange, who], queryFn: () => readUser(dep!, who!), enabled: !!dep && !!who, refetchInterval: 3000 });
+  const hist = useQuery({ queryKey: ["history", dep?.HouseExchange, who], queryFn: () => readHistory(dep!, who!), enabled: !!dep && !!who && !ftDismissed, refetchInterval: 15000, retry: 1 });
   const candles = useQuery({ queryKey: ["candles", gran], queryFn: () => fetchCandles(gran), refetchInterval: 15000, retry: 1 });
   const stats = useQuery({ queryKey: ["cbstats"], queryFn: fetchStats, refetchInterval: 30000, retry: 1 });
   const push = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()} ${s}`, ...l].slice(0, 60));
@@ -205,6 +234,9 @@ function Dashboard() {
   const myOrders = (mk?.orders ?? []).filter((o) => who && o.trader.toLowerCase() === who.toLowerCase());
   const qIdx = (mk?.queue ?? []).findIndex((q) => who && q.to.toLowerCase() === who.toLowerCase());
   const aheadOfMe = qIdx >= 0 ? mk!.queue.slice(0, qIdx).reduce((a, q) => a + q.amount, 0n) : 0n;
+  const presetLev = Math.min(PRESET.lev, Number(mk?.maxLev ?? 100n));
+  const presetMargin = BigInt(PRESET.margin) * WAD;
+  const presetBust = mk ? bustPrice(true, presetMargin, presetMargin * BigInt(presetLev), mk.price, mk.bufDiv) : undefined;
   const marginInUse = myPositions.reduce((a, p) => a + p.margin, 0n);
   const openPnl = mk ? myPositions.reduce((a, p) => a + rawPnl(p, mk.price), 0n) : undefined;
   const maxLev = Number(mk?.maxLev ?? 100n);
@@ -280,6 +312,10 @@ function Dashboard() {
             {t === "trade" ? "Trade" : t === "house" ? "House" : "MPAPER"}
           </a>
         ))}
+        <a className="starthere" href="#" onClick={(e) => {
+          e.preventDefault(); setTab("trade"); setFtHidden(false); setFtExpand((n) => n + 1);
+          setTimeout(() => scrollToPanel('[data-panel="first-trade"]'), 50);
+        }}>Start here</a>
         <Link href="/docs" className="muted">Docs</Link>
         <Link href="/proof" className="muted">Proof</Link>
       </nav>
@@ -344,6 +380,17 @@ function Dashboard() {
 
   const orderCol = (
     <aside className="ordercol">
+      {!ftDismissed && (
+        <FirstTrade d={d} who={who} readOnly={readOnly} needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()}
+          musd={us?.musd} openCount={myPositions.length} pendingOpen={myOrders.some((o) => o.kind === 0)} history={hist.data}
+          presetBust={presetBust} presetLev={presetLev} expandNonce={ftExpand} onDismiss={() => setFtHidden(true)}
+          onPreset={() => {
+            setSide("long"); setMargin(String(PRESET.margin)); setLev(presetLev);
+            setTimeout(() => scrollToPanel('[aria-label="margin"]'), 50);
+          }}
+          onRoute={(route) => { setRouteReq((q) => ({ route, n: (q?.n ?? 0) + 1 })); setTimeout(() => scrollToPanel('[data-panel="funding"]'), 50); }}
+          onShowBottom={(t) => { setBtab(t); setTimeout(() => scrollToPanel(".bottom"), 50); }} />
+      )}
       <div className="equity">
         <div className="eqh"><span>▾ Account Equity</span><b className="num">{us ? usd((us.musd ?? 0n) + marginInUse + (openPnl ?? 0n)) : "– –"}</b></div>
         <Row k="Available to Trade" v={us ? `${num(us.musd)}` : "– –"} />
@@ -382,7 +429,7 @@ function Dashboard() {
       </div>
       <Funding d={d} who={who} readOnly={readOnly} busy={busy} side={side} lev={lev} marginW={marginW} musd={us?.musd}
         mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run} paused={paused}
-        needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} />
+        needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} routeReq={routeReq} />
       <div className="fine">2-step: keeper fills at the next signed price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut, then {feeLine} on the adjusted gain (only when paid in full right away; queued payouts are fee-free). Bust = liquidation.</div>
       {MODE === "local" && (
         <div className="demo">

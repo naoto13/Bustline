@@ -188,7 +188,7 @@ oracle's own staleness check still applies.
 | `scripts/` | `dev-fork.sh` (anvil fork + deploy), `demo.sh` (crash/volatility demo), `export-abi.sh`, `list-events.py` |
 | `keeper-worker/` | Live keeper on Cloudflare Workers (TypeScript + viem port of the Python keeper, `/health` endpoint) |
 | `keeper/` | Python keeper (fills, liquidations, queue harvest, optional Telegram alerts; v2-only — it never calls the v3 / v3.1 functions, even though `keeper/abi` was regenerated for v3.1, and v2 is frozen) + testnet operator CLI |
-| `frontend/` | Next.js 14 + Mezo Passport: trade screen with bust lines, positions, house & payout queue, MPAPER staking; Wave 2 trove funding routes (`components/Funding.tsx`, `lib/mezo.ts`) |
+| `frontend/` | Next.js 14 + Mezo Passport: trade screen with bust lines, positions, house & payout queue, MPAPER staking; Wave 2 trove funding routes (`components/Funding.tsx`, `lib/mezo.ts`) and the first-trade guide (`components/FirstTrade.tsx`) |
 | `docs/` | [`DEPLOYMENTS.md`](docs/DEPLOYMENTS.md) (addresses + on-chain events), [`OPERATIONS.md`](docs/OPERATIONS.md) (deploy & run), `demo/` (recorded outputs) |
 
 ## Run it

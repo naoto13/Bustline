@@ -311,3 +311,35 @@ a.who:hover { text-decoration: underline; text-underline-offset: 2px; }
   .nav { gap: 0 8px; }
   .nav nav { flex-basis: calc(100% + 20px); margin: 0 -10px; padding: 0 4px; }
 }
+
+/* first-trade guide (top of the order column) */
+.nav nav a.starthere { color: var(--brown); }
+.nav nav a.starthere:hover { color: var(--ink); }
+.ft { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--brown); border-radius: 2px; padding: 6px 8px 7px; display: flex; flex-direction: column; gap: 4px; }
+.ft.complete { border-left-color: var(--green); }
+.fth { display: flex; align-items: center; gap: 6px; }
+.ftt { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.ftn { font-size: 10px; color: var(--muted); }
+.ftsp { flex: 1; }
+.ftx { background: none; border: 0; padding: 2px 4px; font-size: 10px; color: var(--muted); cursor: pointer; border-radius: 2px; }
+.ftx:hover { color: var(--ink); background: var(--panel2); }
+.ftx:focus-visible, .ftgo:focus-visible { outline: 2px solid var(--brown); outline-offset: 1px; }
+.ftbar { height: 2px; background: var(--line); border-radius: 1px; overflow: hidden; }
+.ftbar i { display: block; height: 100%; background: var(--brown); transition: width .3s ease; }
+.ft.complete .ftbar i { background: var(--green); }
+.ft .fine { margin: 0; }
+.ftsteps { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.fts { display: flex; gap: 7px; align-items: flex-start; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.ftd { flex: none; width: 15px; height: 15px; margin-top: 1px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; font-size: 8.5px; font-weight: 700; background: var(--bg); font-family: var(--mono); }
+.fts.done .ftd { background: var(--greenbg); border-color: var(--green); color: var(--green); }
+.fts.cur { color: var(--ink); }
+.fts.cur .ftd { border-color: var(--brown); background: var(--brown); color: #F6EEDC; }
+.fts.cur .ftl { font-weight: 600; }
+.ftc { min-width: 0; flex: 1; }
+.ftbody { margin-top: 2px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.ftbody p { margin: 0; font-size: 10px; color: #4E4433; line-height: 1.45; }
+.ftbody b { font-weight: 600; }
+.ftgo { font-weight: 600; border-color: var(--brown); color: var(--brown); background: var(--bg); white-space: normal; text-align: left; }
+.ftgo:hover { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+.ftbust { border-left: 2px dashed var(--red); padding-left: 6px; }
+@media (prefers-reduced-motion: reduce) { .ftbar i { transition: none; } }

@@ -12,6 +12,7 @@ const REPO = "https://github.com/naoto13/Bustline";
 
 const TOC: [id: string, label: string][] = [
   ["what", "What Bustline is"],
+  ["first-trade", "Your first trade"],
   ["trade", "How a trade works"],
   ["funding", "Funding a trade"],
   ["redemptions", "Redemptions & recovery mode"],
@@ -106,6 +107,22 @@ export default function DocsPage() {
               non-transferable <b>MPAPER</b>, which can be staked for a share of MUSD fees. The contract never pays out more than it
               holds: <code>MUSD held == houseCash + open margin + escrow</code>.
             </p>
+          </section>
+
+          <section id="first-trade">
+            <h2>Your first trade</h2>
+            <p>
+              New to MUSD? The trade screen shows a <b>First trade</b> card at the top of the order panel (reopen it with
+              <b> Start here</b> in the header). It checks each step against your address and ticks it off on its own.
+            </p>
+            <ol className="docs-flow">
+              <li><b>Connect a wallet.</b> Sign in with Mezo Passport, using a Bitcoin wallet or an EVM wallet on Mezo testnet.</li>
+              <li><b>Get testnet BTC.</b> BTC pays gas and is the collateral you borrow against. The <a className="docs-link" href={BTC_FAUCET_URL} target="_blank" rel="noreferrer">Mezo faucet</a> gives 0.05 BTC per claim.</li>
+              <li><b>Get MUSD margin.</b> Use MUSD you already hold, or open a <b>trove</b>: deposit BTC and borrow MUSD. The trove is a separate loan with its own liquidation line at a 110% collateral ratio. See <a className="docs-link" href="#funding">Funding a trade</a>.</li>
+              <li><b>Place a small first order.</b> The preset fills <span className="num">20 MUSD × 5x</span> long and shows the bust price in words: if BTC falls to that price, the position is closed and the 20 MUSD margin is lost.</li>
+              <li><b>Wait for the fill.</b> The keeper fills the order at the next signed price, usually within about 15 s. Unfilled orders become refundable after 5 minutes.</li>
+              <li><b>Close it.</b> In the Positions tab, press <b>Close</b>. The close is filled the same 2-step way; profit is paid (or queued), a loss mints MPAPER.</li>
+            </ol>
           </section>
 
           <section id="trade">
