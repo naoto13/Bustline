@@ -8,8 +8,8 @@ const ADDR = /^0x[0-9a-fA-F]{40}$/;
 /** Display order + labels. Keys not listed here are shown after these, under their JSON name. */
 const LABELS: [key: string, label: string, note?: string][] = [
   ["HouseExchange", "HouseExchange", "market, house, payout queue"],
-  ["SignedPriceOracle", "SignedPriceOracle", "active oracle"],
-  ["PythPullOracle", "PythPullOracle", "deployed, not active"],
+  ["SignedPriceOracle", "SignedPriceOracle"],
+  ["PythPullOracle", "PythPullOracle"],
   ["RebateToken", "RebateToken (MPAPER)", "non-transferable"],
   ["RebateStaking", "RebateStaking", "MUSD + BTC rewards"],
   ["Timelock", "TimelockController", "owner of the contracts above"],
@@ -21,12 +21,14 @@ const LABELS: [key: string, label: string, note?: string][] = [
   ["PriceFeed", "PriceFeed", "Mezo MUSD, price bound"],
   ["StabilityPool", "StabilityPool", "Mezo MUSD"],
   ["Pyth", "Pyth", "Mezo testnet Pyth"],
-  ["Keeper", "Keeper", "key: fills, liquidations"],
-  ["PriceSigner", "Price signer", "key: signs price reports"],
+  ["Keeper", "Keeper", "key: fills, liquidations, oracle updates"],
+  ["PriceSigner", "Price signer", "key: signs reports for SignedPriceOracle"],
   ["Deployer", "Deployer", "key: timelock proposer"],
 ];
 // Aliases in the JSON that point at a contract already listed.
 const SKIP = new Set(["owner", "Oracle"]);
+// Oracle role is read from the file: the one whose address equals `Oracle` is active.
+const ORACLES = new Set(["SignedPriceOracle", "PythPullOracle"]);
 
 export default function DocsContracts() {
   const [dep, setDep] = useState<Deployment | null | undefined>(undefined);
@@ -61,7 +63,7 @@ export default function DocsContracts() {
         <table className="tbl docs-addr">
           <thead><tr><th>Contract</th><th>Address</th><th className="docs-hide-sm">Role</th></tr></thead>
           <tbody>
-            {rows.map(([k, label, note]) => (
+            {rows.map(([k, label, note = ORACLES.has(k) ? (String(raw[k]).toLowerCase() === String(raw.Oracle).toLowerCase() ? "active oracle" : "deployed, not active") : undefined]) => (
               <tr key={k}>
                 <td className="docs-cname">{label}</td>
                 <td>

@@ -123,7 +123,7 @@ export default function FirstTrade(props: {
         return (
           <>
             <p>
-              {props.pendingOpen ? "Your order is waiting. " : ""}The keeper fills it at the next signed price, usually within about 15 s.
+              {props.pendingOpen ? "Your order is waiting. " : ""}The keeper fills it at the next oracle price, usually within about 15 s.
               Orders not filled within 5 minutes become refundable.
             </p>
             {props.pendingOpen && <button className="chipbtn ftgo" onClick={() => props.onShowBottom("orders")}>Show pending orders</button>}

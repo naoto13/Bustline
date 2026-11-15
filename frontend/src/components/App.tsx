@@ -89,7 +89,8 @@ function bustPrice(isLong: boolean, margin: bigint, size: bigint, entry: bigint,
   const buf = bufDiv === 0n ? 0n : entry / bufDiv;
   return isLong ? (entry > dist ? entry - dist : 0n) + buf : entry + dist - buf;
 }
-const ORACLE_LABEL: Record<string, string> = { pyth: "Pyth pull", signed: "keeper-signed, bounded ±1% by the Mezo MUSD PriceFeed", mock: "mock oracle" };
+const ORACLE_LABEL: Record<string, string> = { pyth: "Pyth BTC/USD, verified on-chain by Mezo's Pyth contract, bounded ±1% by the Mezo MUSD PriceFeed", signed: "keeper-signed, bounded ±1% by the Mezo MUSD PriceFeed", mock: "mock oracle" };
+const ORACLE_SHORT: Record<string, string> = { pyth: "Pyth · PriceFeed ±1%", signed: "signed · PriceFeed ±1%", mock: "mock" };
 
 const rawPnl = (p: Pos, price: bigint) => {
   const d = ((price > p.entryPrice ? price - p.entryPrice : p.entryPrice - price) * p.size) / p.entryPrice;
@@ -371,9 +372,9 @@ function Dashboard() {
         <span className="stat"><span className="k">HOUSE</span><span className="num" data-stat="house">{compact(mk?.houseCash)}</span></span>
         <span className="stat"><span className="k">QUEUE</span><span className="num" data-stat="queue">{compact(mk?.queueTotal)}</span></span>
         <span className="stat"><span className="k">EQUITY</span><span className={`num ${(mk?.equity ?? 0n) < 0n ? "neg" : ""}`} data-stat="equity">{signed(mk?.equity)}</span></span>
-        <span className="stat" title={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode}><span className="k">ORACLE</span><span>{d.oracleMode === "signed" ? "signed · PriceFeed ±1%" : d.oracleMode ?? "mock"}</span></span>
+        <span className="stat" title={ORACLE_LABEL[d.oracleMode ?? "mock"] ?? d.oracleMode}><span className="k">ORACLE</span><span>{ORACLE_SHORT[d.oracleMode ?? "mock"] ?? d.oracleMode}</span></span>
         <span className="stat"><span className="k">PUBLISHED</span><span className="num">{mk ? `${ageTxt} ago` : "–"}</span></span>
-        <span className={`live ${live ? "" : "stale"}`} title={live ? "on-chain price is fresh (keeper heartbeat every 5 min; fills use a newer signed price)" : "stale — keeper pushes a fresh price every 5 min and with each fill/liquidation"}>{live ? "LIVE" : "STALE"}</span>
+        <span className={`live ${live ? "" : "stale"}`} title={live ? "on-chain price is fresh (keeper heartbeat every 5 min; fills use a newer oracle price)" : "stale — keeper pushes a fresh price every 5 min and with each fill/liquidation"}>{live ? "LIVE" : "STALE"}</span>
       </div>
     </div>
   );
@@ -430,7 +431,7 @@ function Dashboard() {
       <Funding d={d} who={who} readOnly={readOnly} busy={busy} side={side} lev={lev} marginW={marginW} musd={us?.musd}
         mark={mk?.price} bust={mk && marginW > 0n ? estBust : undefined} write={write} run={run} paused={paused}
         needConnect={MODE !== "local" && !who} connect={() => openConnectModal?.()} onLines={setTroveLines} routeReq={routeReq} />
-      <div className="fine">2-step: keeper fills at the next signed price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut, then {feeLine} on the adjusted gain (only when paid in full right away; queued payouts are fee-free). Bust = liquidation.</div>
+      <div className="fine">2-step: keeper fills at the next oracle price (±1% of the Mezo PriceFeed). No funding, no spread; winners pay an impact haircut, then {feeLine} on the adjusted gain (only when paid in full right away; queued payouts are fee-free). Bust = liquidation.</div>
       {MODE === "local" && (
         <div className="demo">
           <div className="lbl">DEMO CONTROLS (LOCAL ANVIL)</div>
@@ -707,7 +708,7 @@ function Dashboard() {
       {tab === "trade" ? trade : tab === "house" ? house : mpaper}
       {tab === "trade" && bottom}
       {tab !== "trade" && <div className="hiddenlog">{bottom}</div>}
-      <footer className="foot">Bustline · mechanism inspired by public docs of Papertrade (asymmetric impact, solvency queue) and Rollbit&apos;s market-impact model; independent implementation, not affiliated. Chart: Coinbase public BTC-USD candles (display only); settlement uses the on-chain keeper-signed price.</footer>
+      <footer className="foot">Bustline · mechanism inspired by public docs of Papertrade (asymmetric impact, solvency queue) and Rollbit&apos;s market-impact model; independent implementation, not affiliated. Chart: Coinbase public BTC-USD candles (display only); settlement uses the on-chain oracle price.</footer>
     </div>
   );
 }

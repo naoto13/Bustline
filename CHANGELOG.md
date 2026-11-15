@@ -25,11 +25,25 @@ each milestone; contract addresses are in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMEN
   live reads of the address; dismissible, reopened with "Start here" in the header. Docs section "Your first trade".
 - Trove funding panel shows where the trove sits in Mezo's redemption order (lowest ICR is redeemed first); Docs
   section "Redemptions & recovery mode".
+- Keeper Worker: Pyth pull support. Every tick it reads the exchange's on-chain `oracle()` and picks the price source:
+  the SignedPriceOracle → keeper-signed report (unchanged), the PythPullOracle → a BTC/USD update from Pyth Hermes
+  (API key `PYTH_API_KEY`, response validated as untrusted, update fee read from `updateFee` and capped at 10,000 wei),
+  anything else → no price-carrying transaction and an error. Switching or rolling back the oracle on-chain needs no
+  Worker redeploy. `/health` shows the live and last-run oracle and mode.
+- Tests: 34 keeper Worker tests (22 unit + 12 offline integration tests that run the scheduled handler and `/health`
+  with stubbed `fetch` and decode the transactions it would send), and the fork suite `test/fork/OracleSwitchFork.t.sol`
+  (10 tests, 5 of them need a live Hermes update in `PYTH_UPDATE_HEX`) that runs the exact timelock calldata against
+  the deployed v3.1 contracts, then a push, a fill and a liquidation with a Pyth update. Totals: 103 unit/fuzz,
+  56 fork, 34 keeper Worker, 23 Python keeper.
+- Settlement oracle switched from the keeper-signed oracle to the Pyth pull oracle on 2026-11-15 (timelock op D,
+  `HouseExchange v3.1.setOracle(PythPullOracle v3.1)`, executed 19:57 JST, tx `0x7edaae6d9d512356dd1e6d11a633b92d11d671831513316ed41ebb51545da732`;
+  details in [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md#v31-timelock-operations)). Trades before the switch were
+  settled on the keeper-signed oracle, which stays deployed as the rollback target. `deployments/testnet-v3.1.json`
+  now has `"Oracle"` = PythPullOracle and `"oracleMode": "pyth"`.
 
 Still to do before the Wave 2 deadline (2026-11-15):
 
 - Trades by outside users, and a run of the funding routes through the UI with a Passport BTC wallet.
-- Switch the active oracle to the Pyth pull oracle (needs a Pyth Hermes API key and one timelock operation).
 - Demo video recorded on v3.1.
 
 ## [v3.1-wave2] — 2026-11-07 — Emergency pause, protocol revenue, review fixes

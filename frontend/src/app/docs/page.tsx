@@ -120,7 +120,7 @@ export default function DocsPage() {
               <li><b>Get testnet BTC.</b> BTC pays gas and is the collateral you borrow against. The <a className="docs-link" href={BTC_FAUCET_URL} target="_blank" rel="noreferrer">Mezo faucet</a> gives 0.05 BTC per claim.</li>
               <li><b>Get MUSD margin.</b> Use MUSD you already hold, or open a <b>trove</b>: deposit BTC and borrow MUSD. The trove is a separate loan with its own liquidation line at a 110% collateral ratio. See <a className="docs-link" href="#funding">Funding a trade</a>.</li>
               <li><b>Place a small first order.</b> The preset fills <span className="num">20 MUSD × 5x</span> long and shows the bust price in words: if BTC falls to that price, the position is closed and the 20 MUSD margin is lost.</li>
-              <li><b>Wait for the fill.</b> The keeper fills the order at the next signed price, usually within about 15 s. Unfilled orders become refundable after 5 minutes.</li>
+              <li><b>Wait for the fill.</b> The keeper fills the order at the next oracle price, usually within about 15 s. Unfilled orders become refundable after 5 minutes.</li>
               <li><b>Close it.</b> In the Positions tab, press <b>Close</b>. The close is filled the same 2-step way; profit is paid (or queued), a loss mints MPAPER.</li>
             </ol>
           </section>
@@ -305,21 +305,23 @@ export default function DocsPage() {
             <h2>Prices &amp; oracles</h2>
             <p>
               Settlement is pull-based: the keeper puts a fresh price update in the same transaction as each fill or liquidation.
-              The owner can switch the source with one <code>setOracle</code> call.
+              Since 2026-11-15 that update is a Pyth BTC/USD price, verified on-chain by Mezo’s Pyth contract (Wormhole guardian
+              signatures): the keeper chooses when to deliver it but cannot make up a price. Switching the source is a timelock
+              operation with a 1-hour delay; the keeper-signed oracle stays deployed as the rollback target.
             </p>
             <div className="docs-tablewrap">
               <table className="tbl docs-otbl">
                 <thead><tr><th>Source</th><th>How</th><th>Status</th></tr></thead>
                 <tbody>
                   <tr>
-                    <td className="docs-cname">Keeper-signed</td>
-                    <td>Median of Coinbase / Kraken / Bitstamp spot (≥ 2 sources, ≤ 0.5% spread), signed report, max age 60 s</td>
-                    <td><span className="tag tlong">ACTIVE</span></td>
+                    <td className="docs-cname">Pyth pull</td>
+                    <td>Pyth BTC/USD update from Hermes, verified by Mezo testnet Pyth (Wormhole guardians), max age 60 s, confidence ≤ 1%</td>
+                    <td><span className="tag tlong">ACTIVE SINCE 2026-11-15</span></td>
                   </tr>
                   <tr>
-                    <td className="docs-cname">Pyth pull</td>
-                    <td>Mezo testnet Pyth, max age 60 s, confidence ≤ 1%</td>
-                    <td><span className="tag tgrey">DEPLOYED, NOT ACTIVE</span></td>
+                    <td className="docs-cname">Keeper-signed</td>
+                    <td>Median of Coinbase / Kraken / Bitstamp spot (≥ 2 sources, ≤ 0.5% spread), signed report, max age 60 s</td>
+                    <td><span className="tag tgrey">ROLLBACK, NOT ACTIVE</span></td>
                   </tr>
                 </tbody>
               </table>
@@ -342,8 +344,8 @@ export default function DocsPage() {
             <Facts rows={[
               ["Owner", "the timelock (proposer = deployer key; anyone can execute a ready operation)"],
               ["Guardian (v3.1)", "set at deploy (the deployer key unless configured; never the keeper key) — can pause immediately, cannot unpause or change anything else"],
-              ["Keeper", "separate key — fills, liquidations, price pushes, queue harvest, rebalance"],
-              ["Price signer", "separate key — signs price reports only"],
+              ["Keeper", "separate key — fills, liquidations, Pyth price delivery, queue harvest, rebalance"],
+              ["Price signer", "separate key — signs reports for the keeper-signed oracle only (rollback, not active)"],
             ]} />
             <h3>Emergency pause (v3.1)</h3>
             <p>

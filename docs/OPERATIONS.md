@@ -3,18 +3,20 @@
 Mezo testnet only (chainId `31611`, `https://rpc.test.mezo.org`). Addresses of the current deployment are in
 [`DEPLOYMENTS.md`](DEPLOYMENTS.md).
 
-**Current state (2026-11-07).** v3.1 (`deployments/testnet-v3.1.json`) is the live market; the keeper Worker and the
+**Current state (2026-11-15).** v3.1 (`deployments/testnet-v3.1.json`) is the live market; the keeper Worker and the
 production frontend (https://bustline.planz.workers.dev) both run on it. v3 (`deployments/testnet-v3.json`) is retired
 (it never had a trade). v2 (`deployments/testnet.json`) is frozen: its single owner/keeper/signer key was lost, so the
-v2 commands below are kept for reference only.
+v2 commands below are kept for reference only. Since 2026-11-15 (timelock op D) the Pyth pull oracle is v3.1's settlement oracle; the
+keeper-signed oracle stays deployed as the rollback target ([switch / roll back](#switch-or-roll-back-the-oracle-timelock)).
 
-**Key roles (v3.1, same keys as v3).** Three different keys, all stored outside git (never committed, never printed):
+**Key roles (v3.1, same keys as v3).** Three different keys plus the Pyth Hermes API key, all stored outside git (never committed, never printed):
 
 | Key | Address | Holds | Where it is used |
 |---|---|---|---|
 | Deployer = timelock proposer / canceller = guardian = treasury | `0xcDf4…8a21` | No direct ownership (the `TimelockController` owns HouseExchange, both oracles and the RebateToken). As guardian it can `pause()` (not unpause); as treasury it receives the 1% protocol fee | `DeployTestnetV3_1` broadcast, timelock `schedule` / `cancel`, emergency `pause()`. Read only from `MEZO_TESTNET_PRIVATE_KEY` or a Foundry keystore |
 | Keeper | `0x8560…2a42` | `isKeeper` on HouseExchange v3.1, BTC for gas | Worker secret `KEEPER_PRIVATE_KEY` |
-| Price signer | `0x0BFf…2AEe` | `signer` of SignedPriceOracle v3.1; sends no txs | Worker secret `PRICE_SIGNER_PRIVATE_KEY` |
+| Price signer | `0x0BFf…2AEe` | `signer` of SignedPriceOracle v3.1; sends no txs (used only while that oracle is active) | Worker secret `PRICE_SIGNER_PRIVATE_KEY` |
+| Pyth Hermes API key | — | Read access to Pyth Hermes; no funds, signs nothing | Worker secret `PYTH_API_KEY` (the bare key) |
 
 Keys are read only from environment variables or Worker secrets — never passed on argv, never written to tracked
 files. Every write requires an explicit confirm flag. Owner actions on v3.1 (risk params, oracle switch, keeper list,
@@ -84,24 +86,30 @@ ops --deployment ../deployments/testnet-demo.json --confirm set-price 84000   # 
 
 The testnet keeper runs as the Worker **`bustline-keeper`** (`keeper-worker/`,
 health: https://bustline-keeper.planz.workers.dev/health), so the demo doesn't depend on a server. It is a
-TypeScript + viem port of one Python keeper poll (`monitor.Keeper.poll_once` with the keeper-signed price source),
-without Telegram.
+TypeScript + viem port of one Python keeper poll (`monitor.Keeper.poll_once`), without Telegram, with both price
+sources (keeper-signed and Pyth Hermes).
 
 | | |
 |---|---|
 | Trigger | Cron `* * * * *`; each run ticks every 15 s for ~46 s (4 ticks) (`TICK_SECONDS`, `RUN_SECONDS`) |
-| Price | Median of Coinbase / Kraken / Bitstamp (≥ 2 sources, ≤ 50 bps spread), 8-dec WAD, signed EIP-191 over `keccak256(abi.encode(31611, oracle, price, publishTime))` exactly like `signer.py` / `abi.py`. One deliberate difference: publishTime = min(now, latest block time + 5 s), because testnet block time can lag wall clock by ~10 s and the oracle rejects reports > `maxSkew` (10 s) in the future |
+| Price source | Read every tick from the exchange's `oracle()` (in the existing snapshot batch, no extra subrequest): `== ORACLE_ADDRESS` → keeper-signed report, `== PYTH_ORACLE_ADDRESS` → Pyth Hermes update, anything else (or a failed read) → no price-carrying tx and an error is recorded. An on-chain switch or rollback needs no Worker redeploy |
+| Price (Pyth mode, active since 2026-11-15) | `GET https://hermes.pyth.network/v2/updates/price/latest?ids[]=<BTC/USD feed>&encoding=hex&parsed=true` with `Authorization: Bearer` + `PYTH_API_KEY` (host fixed, redirects not followed, 8 s timeout). The response is treated as untrusted: feed id, hex, price > 0, confidence ≤ 1%, publish time at most 55 s old and at most 10 s in the future. The fee comes from `PythPullOracle.updateFee(bytes[])` (1 wei per update today); above 10,000 wei it is refused. The update bytes + fee ride on the first `executeOrder` / `liquidate` / `pushPrice` of the tick |
+| Price (signed mode) | Median of Coinbase / Kraken / Bitstamp (≥ 2 sources, ≤ 50 bps spread), 8-dec WAD, signed EIP-191 over `keccak256(abi.encode(31611, oracle, price, publishTime))` exactly like `signer.py` / `abi.py`. One deliberate difference: publishTime = min(now, latest block time + 5 s), because testnet block time can lag wall clock by ~10 s and the oracle rejects reports > `maxSkew` (10 s) in the future |
 | Per tick | Fill pending orders (only at a price published after the request), liquidate positions past their bust price, push the price (at least once per run, so the on-chain price is ≤ ~60 s old), harvest the payout queue |
 | Pause (v3.1) | Reads `paused()` in the same batch as the snapshot (no extra subrequest). While paused it skips fills and liquidations, holds the order-scan cursor (orders requested during the pause are filled after unpause), and keeps price pushes, harvest and `rebalance` / `forwardBtc`. It logs `exchange PAUSED` / `exchange unpaused` once per change (state in KV, shown as `paused` in `/health`), not an error every tick. On v3 `paused()` reverts and is read as not paused |
 | Txs | Sequential, one in flight, legacy EIP-155 tx, `pending` nonce (never reused within a run), gas = estimate × 1.3 + 20k, gasPrice = 2 × `eth_gasPrice` |
 | Safety | Refuses any RPC host other than `rpc.test.mezo.org` and any chainId other than 31611 |
-| Health | `GET /health` → live on-chain price + age, open positions, pending orders, and the last run summary (tx hashes, per-tick results) from KV. No secrets |
+| Health | `GET /health` → live on-chain price + age, the active oracle (`live.oracle`, `live.oracle_mode`), open positions, pending orders, and the last run summary (incl. `oracle`, `oracle_mode`, `signed_oracle`, `pyth_oracle`) (tx hashes, per-tick results) from KV. No secrets |
 
 Configuration (`keeper-worker/wrangler.toml` `[vars]`): `EXCHANGE_ADDRESS` = HouseExchange v3.1, `ORACLE_ADDRESS` =
 SignedPriceOracle v3.1 (both from `deployments/testnet-v3.1.json`; required — there is no built-in fallback, and the Worker
-refuses to run if either is missing), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
+refuses to run if either is missing), `PYTH_ORACLE_ADDRESS` = PythPullOracle v3.1 (unset = no Pyth mode), `SP_OPS = "1"` (also call `rebalance()` / `forwardBtc()`, at most once per
 `SP_INTERVAL_SECONDS`). Secrets: `KEEPER_PRIVATE_KEY` sends the txs, `PRICE_SIGNER_PRIVATE_KEY` signs the price reports
-(two different keys). Redeployed on v3 2026-11-06 and switched to v3.1 on 2026-11-07.
+(two different keys), `PYTH_API_KEY` authenticates to Pyth Hermes (the stored value must be the bare key; Hermes answers
+401 without a key or with the key in an `x-api-key` header, 403 with a wrong key after `Bearer`, 400 when
+`Authorization` lacks the `Bearer` prefix; measured 2026-11-15). Redeployed on v3 2026-11-06, switched to v3.1 on
+2026-11-07, and redeployed with Pyth support on 2026-11-15 (commit `cb4455f`, version
+`8f8e27bd-cdd1-4726-ac50-b4e6084540fc`) before the oracle switch.
 
 Signature / calldata / raw-tx encoding is checked byte-for-byte against the Python keeper:
 `node keeper-worker/test/sig.mjs` (public anvil key, never the keeper key) vs `perp_keeper.abi` + `eth_account`.
@@ -110,11 +118,12 @@ Signature / calldata / raw-tx encoding is checked byte-for-byte against the Pyth
 cd keeper-worker
 pnpm install --frozen-lockfile                          # pnpm 10.16+ (packageManager pins pnpm@10.33.2)
 pnpm check                                              # tsc --noEmit
-pnpm test                                               # pause handling (node --test)
+pnpm test                                               # 34 tests: 22 unit + 12 offline integration (Node 22.7+)
 w() { pnpm dlx --package node@22 --package wrangler@latest wrangler "$@"; }   # wrangler needs Node >= 22
 w deploy
 printenv KEEPER_KEY | w secret put KEEPER_PRIVATE_KEY               # pipe only; never echo the key
 printenv PRICE_SIGNER_KEY | w secret put PRICE_SIGNER_PRIVATE_KEY   # a different key from the keeper
+printenv PYTH_API_KEY | w secret put PYTH_API_KEY                    # Hermes API key, the bare key only
 w tail --format pretty                                               # watch ticks
 curl -s https://bustline-keeper.planz.workers.dev/health
 ```
@@ -125,12 +134,14 @@ Workers Free limits:
 
 - **50 subrequests per invocation.** RPC reads are JSON-RPC batched (one HTTP call per snapshot); the loop stops early
   at ~44 subrequests. A busy minute (several fills + liquidations, each waiting for a receipt) may finish fewer ticks;
-  the next cron minute picks up the rest.
+  the next cron minute picks up the rest. A price fetch costs 3 subrequests in signed mode (the spot sources) and 2 in
+  Pyth mode (Hermes + `updateFee`).
 - **CPU 10 ms per invocation.** Network waits don't count; secp256k1 signing is the main cost. Watch `cpuTime` in
   Workers Observability; if runs get killed for CPU, move to Workers Paid.
 - **KV 1,000 writes/day.** State and the `/health` run summary share one key, written every 10 minutes or whenever
   the order cursor moved or a fill, liquidation, harvest or error happened (~144 writes/day baseline), so the summary
-  can be up to ~10 min old; the `live` block is always fresh.
+  can be up to ~10 min old; the `live` block is always fresh. Known limit: an error forces a write, so if an unknown
+  oracle or a missing `PYTH_API_KEY` persists, the Worker writes once a minute (1,440/day) and exceeds the Free quota.
 - Cron trigger changes can take a few minutes to start firing after the first deploy.
 
 ### Python keeper (v2 only, not a fallback for v3.1)
@@ -145,7 +156,8 @@ cd keeper
 ```
 
 The price source follows `"oracleMode"` in the deployment file: `signed` → keeper-signed spot median, `pyth` → Hermes
-(needs `PYTH_API_KEY`). Optional Telegram alerts read `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` from the environment.
+(needs `PYTH_API_KEY`). `deployments/testnet-v3.1.json` is `pyth` since 2026-11-15, so `testnet_ops push-price
+--deployment deployments/testnet-v3.1.json` now uses Hermes and needs `PYTH_API_KEY`. Optional Telegram alerts read `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` from the environment.
 
 ## 4. Frontend
 
@@ -238,3 +250,41 @@ cast call $EX "paused()(bool)" --rpc-url https://rpc.test.mezo.org          # fa
 After unpause the keeper logs `exchange unpaused` and fills the orders that were requested during the pause (a close
 that expired meanwhile is refundable with `cancelExpired`; its position stays open). Record the schedule / execute
 txs in [`DEPLOYMENTS.md`](DEPLOYMENTS.md#v31-timelock-operations).
+
+### Switch or roll back the oracle (timelock)
+
+The PythPullOracle is v3.1's settlement oracle since 2026-11-15 (op D). The keeper Worker reads `oracle()` every tick and picks
+the matching price source by itself, so a switch in either direction needs no Worker redeploy.
+
+- **Worker-side problem** (Hermes parsing, key, fee): fix and redeploy the Worker; nothing changes on-chain.
+- **Pyth-side problem** (Hermes or Mezo Pyth down): schedule `setOracle(SignedPriceOracle)` through the timelock
+  (1-hour delay, fresh salt). The Worker returns to signed reports after the execute. If trading must stop sooner,
+  the guardian can `pause()` at once (above).
+- Right after a switch to Pyth, `currentPrice()` reverts `StalePrice` until the keeper's first Pyth push (the first
+  tick of the next cron run): before op D the BTC/USD price stored in Mezo testnet's Pyth contract was ~111 days old.
+
+`setOracle(address)` has selector `0x7adbf973`; the payload is the selector + the padded oracle address
+(`cast calldata "setOracle(address)" <oracle>`). Rollback to the SignedPriceOracle:
+
+```bash
+SIGNED=0x75a3071482883d9616bf0473B7eE25B4222b181F   # SignedPriceOracle v3.1 ("SignedPriceOracle")
+DATA=$(cast calldata "setOracle(address)" $SIGNED)   # 0x7adbf97300000000000000000000000075a3071482883d9616bf0473b7ee25b4222b181f
+SALT=$(cast keccak "bustline-v3.1-oracle-signed-$(date -u +%Y%m%dT%H%M%S)")
+cast send $TL "schedule(address,uint256,bytes,bytes32,bytes32,uint256)" \
+  $EX 0 $DATA 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT 3600 \
+  --account <proposer-keystore> --rpc-url https://rpc.test.mezo.org
+cast call $TL "hashOperation(address,uint256,bytes,bytes32,bytes32)(bytes32)" \
+  $EX 0 $DATA 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT --rpc-url https://rpc.test.mezo.org
+
+# after the delay (isOperationReady(id) == true), from any account:
+cast send $TL "execute(address,uint256,bytes,bytes32,bytes32)" \
+  $EX 0 $DATA 0x0000000000000000000000000000000000000000000000000000000000000000 $SALT \
+  --account <any-keystore> --rpc-url https://rpc.test.mezo.org
+cast call $EX "oracle()(address)" --rpc-url https://rpc.test.mezo.org   # SignedPriceOracle
+curl -s https://bustline-keeper.planz.workers.dev/health                # live.oracle_mode = signed
+```
+
+Switching to Pyth is the same with `PYTH=0xf05B4108B93A83a1a87Ba1E392a81226aAC63619` (payload
+`0x7adbf973000000000000000000000000f05b4108b93a83a1a87ba1e392a81226aac63619`, op D). After either switch, update
+`"Oracle"` / `"oracleMode"` in `deployments/testnet-v3.1.json` and its copy `frontend/public/deployment.testnet.json`,
+and record the operation in [`DEPLOYMENTS.md`](DEPLOYMENTS.md#v31-timelock-operations).

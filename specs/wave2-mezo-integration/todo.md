@@ -84,4 +84,6 @@
 - [ ] v3.1 での最初の取引（デプロイヤー以外のウォレット、3経路の実ウォレット確認を含む。2026-11-07 時点で v3.1 の取引は 0 件）
 - [x] ABI の再生成（`scripts/export-abi.sh`）
 - [x] フロント（「2% win fee」の表示）、keeper（ABI、停止中の扱い）、README・docs の更新 → コードは 2026-11-07 のコミット `42ac738`、デプロイ後の README・CHANGELOG・docs の同期は 2026-11-07
+- [x] 決済オラクルを Pyth pull に切り替える（timelock 操作 D、`HouseExchange v3.1.setOracle(PythPullOracle v3.1)`）→ keeper Worker が毎 tick オンチェーンの `oracle()` を読んで価格源（署名レポート／Pyth Hermes）を自動で選ぶ版を 2026-11-15 にデプロイ（commit `cb4455f`、秘密 `PYTH_API_KEY` を追加）。fork テスト `test/fork/OracleSwitchFork.t.sol` で schedule／execute と切替後の push・約定・清算をリハーサル。2026-11-15 18:56 JST に schedule（tx `0x369e59378e27ac57d27aa50eaa1fcf40eff9c665859bde5e219c86445150f7b5`、id `0xeea4…222a`）、19:57 JST に execute（tx `0x7edaae6d9d512356dd1e6d11a633b92d11d671831513316ed41ebb51545da732`）。切替前の取引はすべて keeper 署名オラクルで決済。SignedPriceOracle はロールバック先として残す
+- [ ] backlog: 2回目の Pyth 更新で決済する close は fork リハーサル未確認（清算は確認済み）。未知のオラクルや `PYTH_API_KEY` 欠落が続くと KV 書き込みが毎分になり Free プランの 1,000 回／日を超える
 

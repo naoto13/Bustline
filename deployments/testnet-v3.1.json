@@ -6,7 +6,7 @@
   "HouseExchange": "0x3c58314cd5710893519E5d962F553633ECC60cF7",
   "Keeper": "0x85601C5Fc9A735a2710ba78024115039a7a32a42",
   "MUSD": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
-  "Oracle": "0x75a3071482883d9616bf0473B7eE25B4222b181F",
+  "Oracle": "0xf05B4108B93A83a1a87Ba1E392a81226aAC63619",
   "PriceFeed": "0x86bCF0841622a5dAC14A313a15f96A95421b9366",
   "PriceSigner": "0x0BFf571D7c806400Fc00D4Bb06AD1B660D5E2AEe",
   "ProtocolFeeBps": 100,
@@ -23,7 +23,7 @@
   "Treasury": "0xcDf407c01d38553eA44F250028D19b1d80898a21",
   "TroveManager": "0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0",
   "chainId": 31611,
-  "oracleMode": "signed",
+  "oracleMode": "pyth",
   "owner": "0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4",
   "version": "v3.1"
 }

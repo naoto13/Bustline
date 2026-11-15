@@ -2,10 +2,11 @@
 
 RPC `https://rpc.test.mezo.org` · Explorer `https://explorer.test.mezo.org` · Frontend https://bustline.planz.workers.dev
 
-Unaudited demo. **Current state (2026-11-07):** v3.1 (`deployments/testnet-v3.1.json`) is the live market. The keeper
+Unaudited demo. **Current state (2026-11-15):** v3.1 (`deployments/testnet-v3.1.json`) is the live market. The keeper
 Worker (https://bustline-keeper.planz.workers.dev) fills, liquidates and pushes prices on v3.1, and the production
 frontend at https://bustline.planz.workers.dev (Cloudflare Workers static assets) reads v3.1. All six v3.1 contracts
-are verified on the explorer (Blockscout, 2026-11-07). No trades have happened on v3.1 yet. v3 (2026-11-06) is
+are verified on the explorer (Blockscout, 2026-11-07). Since 2026-11-15 (timelock op D) the Pyth pull oracle is v3.1's
+settlement oracle; the keeper-signed oracle stays deployed as the rollback target. The trades on v3.1 so far come only from the team's test wallets (scripted on 2026-11-07, through the UI on 2026-11-10), all settled on the keeper-signed oracle; no outside users yet (below). v3 (2026-11-06) is
 retired (it never had a trade) and v2 is frozen; both are kept below as history.
 
 ## v3.1 (Wave 2, current) — `deployments/testnet-v3.1.json`
@@ -21,8 +22,8 @@ Pause / resume runbook: [`OPERATIONS.md`](OPERATIONS.md#5-emergency-pause-v31).
 |---|---|---|
 | TimelockController (delay 3600 s; proposer + canceller = deployer, executor = anyone, no admin) | [`0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4`](https://explorer.test.mezo.org/address/0x115ba5242fc96c72cb2971D1B0f25439Def8f1C4) | `0x9f244e92a219d79cea16bee0f99c305d1c41ed528fd2394e5564e7ca195c61dc` |
 | HouseExchange v3.1 (pause + protocol fee; Stability Pool wired, off until op B) | [`0x3c58314cd5710893519E5d962F553633ECC60cF7`](https://explorer.test.mezo.org/address/0x3c58314cd5710893519E5d962F553633ECC60cF7) | `0x067c54a0d3ebac8592cf0f874792b6baf74df59fde96cca88b253b10089c8af5` |
-| SignedPriceOracle (**active**; MUSD PriceFeed bound ±1%) | [`0x75a3071482883d9616bf0473B7eE25B4222b181F`](https://explorer.test.mezo.org/address/0x75a3071482883d9616bf0473B7eE25B4222b181F) | `0xf6083f0f7d138ae28a97437878c464062966136a7a7c1b46866036901178865c` |
-| PythPullOracle (switch-ready; MUSD PriceFeed bound ±1%) | [`0xf05B4108B93A83a1a87Ba1E392a81226aAC63619`](https://explorer.test.mezo.org/address/0xf05B4108B93A83a1a87Ba1E392a81226aAC63619) | `0xb6660709d2b56bc4d99981f39fc0cbadc6390bf3bdb54fcbcf88bbec96c7765a` |
+| SignedPriceOracle (not active since 2026-11-15, rollback target; MUSD PriceFeed bound ±1%) | [`0x75a3071482883d9616bf0473B7eE25B4222b181F`](https://explorer.test.mezo.org/address/0x75a3071482883d9616bf0473B7eE25B4222b181F) | `0xf6083f0f7d138ae28a97437878c464062966136a7a7c1b46866036901178865c` |
+| PythPullOracle (**active** since 2026-11-15, op D; MUSD PriceFeed bound ±1%) | [`0xf05B4108B93A83a1a87Ba1E392a81226aAC63619`](https://explorer.test.mezo.org/address/0xf05B4108B93A83a1a87Ba1E392a81226aAC63619) | `0xb6660709d2b56bc4d99981f39fc0cbadc6390bf3bdb54fcbcf88bbec96c7765a` |
 | RebateToken — Mezo Paper (`MPAPER`), new token, non-transferable | [`0xDACD4786EDCBB626BA95805E204FD18815a389D0`](https://explorer.test.mezo.org/address/0xDACD4786EDCBB626BA95805E204FD18815a389D0) | `0xd4b4458c11c7592a8f2c07d93f272aadd4e0727e3f5e564a7adc4c9b40636283` |
 | RebateStaking (MUSD + BTC rewards) | [`0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98`](https://explorer.test.mezo.org/address/0x9bC4C5076752ec7ee0E4e429D6d95229AA147c98) | `0x327a702d86e1e4377d545a02c7559684a3f30eec9fb4aa0afd76f736669a3215` |
 | MUSD (Mezo) | [`0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503`](https://explorer.test.mezo.org/address/0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503) | — |
@@ -49,9 +50,10 @@ had a trade, so it never minted any).
 |---|---|---|
 | Deployer = timelock proposer / canceller = **guardian** = **treasury** | `0xcDf407c01d38553eA44F250028D19b1d80898a21` | Deploy script, timelock `schedule`, `pause()` (cannot unpause), receives the 1% protocol fee. Owns nothing directly |
 | Keeper (`isKeeper` on HouseExchange v3.1) | `0x85601C5Fc9A735a2710ba78024115039a7a32a42` | Worker `KEEPER_PRIVATE_KEY`: fills, liquidations, price pushes, `rebalance` / `forwardBtc` |
-| Price signer (`signer` of SignedPriceOracle v3.1) | `0x0BFf571D7c806400Fc00D4Bb06AD1B660D5E2AEe` | Worker `PRICE_SIGNER_PRIVATE_KEY`: signs price reports only, sends no txs |
+| Price signer (`signer` of SignedPriceOracle v3.1) | `0x0BFf571D7c806400Fc00D4Bb06AD1B660D5E2AEe` | Worker `PRICE_SIGNER_PRIVATE_KEY`: signs price reports only, sends no txs (used only while the SignedPriceOracle is active) |
 
-Same three keys as v3. A leaked keeper or signer key can neither pause nor call owner functions.
+Same three keys as v3. Since 2026-11-15 the Worker also has the secret `PYTH_API_KEY` (Pyth Hermes API key; not a
+signing key, holds no funds). A leaked keeper or signer key can neither pause nor call owner functions.
 
 ### v3.1 timelock operations
 
@@ -59,6 +61,7 @@ Same three keys as v3. A leaked keeper or signer key can neither pause nor call 
 |---|---|---|
 | B — enable the Stability Pool | `HouseExchange v3.1.setSpParams(true, 50e18, 5000, 2000)` (min liquid 50 MUSD, max share 50%, band 20%) | **Done 2026-11-07** (scheduled 03:51 JST, executed after the 1-hour delay; `spEnabled = true`). id `0x77cc7265afb4c8530c759f7d95ea41d49fd3c1596e452bdc7693d4bea0d47909`, salt `keccak256("bustline-v3.1-sp-enable")` = `0x2f2e4a04e8a04eaf31038a0c61aaa833e8ee735299e060bc15d09dc32ef19f3b`, schedule tx `0x72d53fce2a0fb382a10e6ade4a07fdf272d9c74b78f3fab470552162755dd7a4`. Execute tx `0x50eb35942b1941733ee03537563fa49bc62a642875a9e2784822205d4df604cd` |
 | C — lower the Stability Pool floor for the testnet demo | `HouseExchange v3.1.setSpParams(true, 0.25e18, 5000, 2000)` (min liquid 50 → 0.25 MUSD; share and band unchanged) | **Done 2026-11-10** (testnet only: without seed capital, house cash never reached 50 MUSD, so no deposit could happen). id `0x6e0d7b24050107e2adb2d0f19e93abfe2be6574e6747f422c5f184cff3dbcf2a`, salt `keccak256("bustline-v3.1-sp-floor-0.25")` = `0xf65c30d8a395260146723e2a98550d5131df471e7bac2138c758827a20311844`, schedule tx `0x7fa71a52a3bf5e6e430847f20561d7331cd6f0eeb90257fa2f4b0041e2fe8b1d`, execute tx `0x94de816eaac8b2c9eb1cd0bbc76ad92b8eac6c348314b30b44dda446c2235bdc`. The keeper's next `rebalance()` made the first deposit: 0.2785 MUSD (`SpDeposited`, tx `0x8dd07d2cc0a75ff66f7ba9c05d5f1c59d127fb6458b1da5f42498cb4eb41e042`). A low floor means a winner can be queued if pool withdrawals freeze; restore 50 MUSD (op B payload) before any real use |
+| D — switch the settlement oracle to Pyth | `HouseExchange v3.1.setOracle(PythPullOracle v3.1)` (`0xf05B…3619`) | **Done 2026-11-15** (scheduled 18:56 JST, executable from 19:56 JST, executed 19:57 JST). id `0xeea420cee208a04679867cc7dcc0d0c0cdab0412243a9a2d9dbb87ce06b1222a`, salt `keccak256("bustline-v3.1-oracle-pyth")` = `0xcb902d9c7fbdf064625860e32b4b91f62698701d76f625872ef0a01f32a82e4a`, payload `0x7adbf973000000000000000000000000f05b4108b93a83a1a87ba1e392a81226aac63619`, schedule tx `0x369e59378e27ac57d27aa50eaa1fcf40eff9c665859bde5e219c86445150f7b5` (block 16793898), execute tx `0x7edaae6d9d512356dd1e6d11a633b92d11d671831513316ed41ebb51545da732`. No open positions or pending orders at the switch. The BTC/USD price stored in Mezo testnet's Pyth contract was ~111 days old (publishTime 1785145687), so `currentPrice()` reverts `StalePrice` until the keeper's first Pyth push (the first tick of the next cron run, within about a minute). The keeper Worker follows `oracle()` and needed no redeploy. Rehearsed beforehand in `test/fork/OracleSwitchFork.t.sol`. Rollback: [`OPERATIONS.md`](OPERATIONS.md#switch-or-roll-back-the-oracle-timelock) |
 
 Payload of op B (same as v3):
 `0xd48d9abc0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000002b5e3af16b1880000000000000000000000000000000000000000000000000000000000000000138800000000000000000000000000000000000000000000000000000000000007d0`.
@@ -253,8 +256,13 @@ oracle was active.
 Mezo testnet Pyth **accepts mainnet-signed (stable) BTC/USD updates**. This was verified with a real Base-mainnet update
 (`parsePriceFeedUpdates` via `eth_call`, fee 10 wei) and in `test/fork/PythFork.t.sol` (accept, fill-in-same-tx and
 liquidation-with-update on the real Mezo Pyth bytecode). Pyth Hermes, however, requires an API key since 2026-08.
-On v3.1 the switch is one timelock operation — `HouseExchange v3.1.setOracle(PythPullOracle v3.1)` — plus `"oracleMode":
-"pyth"` in the deployment file once `PYTH_API_KEY` is set (on frozen v2 it can no longer be done).
+On v3.1 the switch was made on 2026-11-15 with one timelock operation — `HouseExchange v3.1.setOracle(PythPullOracle
+v3.1)` (op D above) — and `"oracleMode": "pyth"` in the deployment file; the keeper Worker fetches Hermes updates with
+`PYTH_API_KEY` (measured 2026-11-15: Hermes answers 401 without a key or with the key in an `x-api-key` header, 403 with a wrong
+key after `Bearer`, 400 when `Authorization` lacks the `Bearer` prefix). One update is 631
+bytes, the fee is 1 wei, and a `pushPrice` with one update took ≈110k gas in the fork rehearsal with the bound applied
+(`eth_estimateGas` of a direct `PythPullOracle.update` on live testnet: 240,700). On frozen v2 the switch can no
+longer be done.
 
 Trust model of the signed oracle: the keeper signs `(chainid, oracle, price, publishTime)` (EIP-191). The contract
 rejects bad signatures, reports more than 10 s in the future, reports older than the stored one, prices older than 60 s
